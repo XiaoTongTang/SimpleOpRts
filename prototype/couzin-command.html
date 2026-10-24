@@ -14,24 +14,28 @@
   canvas { display: block; cursor: crosshair; }
 
   .panel {
-    position: fixed; top: 16px; left: 16px; width: 254px;
-    background: rgba(14, 19, 27, 0.86);
+    position: fixed; top: 16px; left: 16px; width: 258px;
+    max-height: calc(100vh - 32px); overflow-y: auto;
+    background: rgba(14, 19, 27, 0.88);
     border: 1px solid rgba(90, 130, 180, 0.22);
     border-radius: 10px; padding: 12px 13px;
     backdrop-filter: blur(10px);
     font-size: 12px; line-height: 1.5;
+    scrollbar-width: thin; scrollbar-color: #2a3949 transparent;
   }
+  .panel::-webkit-scrollbar { width: 6px; }
+  .panel::-webkit-scrollbar-thumb { background: #2a3949; border-radius: 3px; }
   .panel h1 {
     font-size: 12.5px; font-weight: 600; letter-spacing: .3px;
     color: #e8f1fb; margin-bottom: 3px;
   }
   .sub { font-size: 10.5px; color: #5e7288; margin-bottom: 11px; }
 
-  .row { margin-bottom: 9px; }
+  .row { margin-bottom: 7px; }
   .row:last-child { margin-bottom: 0; }
   .lbl {
     display: flex; justify-content: space-between; align-items: baseline;
-    font-size: 10.5px; color: #7e93a8; margin-bottom: 4px;
+    font-size: 10.5px; color: #7e93a8; margin-bottom: 3px;
     letter-spacing: .2px;
   }
   .lbl b { color: #a9c6e4; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -64,7 +68,20 @@
   .reset { color: #4f7fa8; cursor: pointer; font-weight: 400; }
   .reset:hover { color: #8ecdff; }
 
-  .divider { height: 1px; background: #1c2632; margin: 10px 0; }
+  .sqrow {
+    display: flex; align-items: center; gap: 7px;
+    padding: 3px 7px; margin-bottom: 3px; border-radius: 5px;
+    background: #131c26; border: 1px solid #1d2937; cursor: pointer;
+    font-size: 11px; transition: background .1s, border-color .1s;
+  }
+  .sqrow:hover { background: #18232f; }
+  .sqrow.on { border-color: #3f6f9e; background: #16283a; }
+  .sqrow i { width: 9px; height: 9px; border-radius: 2px; display: block; flex: none; }
+  .sqrow b { color: #cfe0f0; font-weight: 600; width: 13px; flex: none; }
+  .sqrow span { margin-left: auto; color: #6e8499; font-variant-numeric: tabular-nums; }
+  .sqrow em { color: #4f6480; font-style: normal; font-size: 10px; }
+
+  .divider { height: 1px; background: #1c2632; margin: 8px 0; }
 
   .stats {
     position: fixed; top: 16px; right: 16px; width: 208px;
@@ -81,8 +98,8 @@
   .bar i { display: block; height: 100%; width: 0%; transition: width .12s linear; border-radius: 3px; }
 
   .hint {
-    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
-    font-size: 11.5px; color: #566b80; white-space: nowrap;
+    position: fixed; bottom: 34px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; color: #566b80; white-space: nowrap;
   }
   .hint kbd {
     display: inline-block; padding: 1px 5px; margin: 0 1px;
@@ -105,8 +122,19 @@
 <canvas id="c"></canvas>
 
 <div class="panel">
-  <h1>Couzin 群体指挥原型</h1>
-  <div class="sub">命令 = 偏好方向 × ω，与社交力竞争</div>
+  <h1>Couzin 小队指挥原型</h1>
+  <div class="sub">同队才吸引 · 分离全局 · 命令按队分发</div>
+
+  <div class="row">
+    <div class="lbl"><span>小队（点击选为当前）</span></div>
+    <div class="sqrow on" data-i="0"><i style="background:hsl(205,82%,58%)"></i><b>A</b><em></em><span id="sqN0">0</span></div>
+    <div class="sqrow" data-i="1"><i style="background:hsl(25,82%,58%)"></i><b>B</b><em></em><span id="sqN1">0</span></div>
+    <div class="sqrow" data-i="2"><i style="background:hsl(145,72%,50%)"></i><b>C</b><em></em><span id="sqN2">0</span></div>
+    <div class="sqrow" data-i="3"><i style="background:hsl(285,72%,64%)"></i><b>D</b><em></em><span id="sqN3">0</span></div>
+    <div class="sqrow" data-i="-1"><i style="background:hsl(215,20%,46%)"></i><b>—</b><em>未编队</em><span id="sqNu">0</span></div>
+  </div>
+
+  <div class="divider"></div>
 
   <div class="row">
     <div class="lbl"><span>社交权重</span><b id="wResetBtn" class="reset">↺ 默认</b></div>
@@ -119,8 +147,8 @@
   <div class="divider"></div>
 
   <div class="row">
-    <div class="lbl"><span>ω 服从度</span><b id="vOmega">1.10</b></div>
-    <input type="range" id="omega" min="0" max="1.5" step="0.01" value="1.1">
+    <div class="lbl"><span>ω 服从度</span><b id="vOmega">0.50</b></div>
+    <input type="range" id="omega" min="0" max="1.5" step="0.01" value="0.5">
   </div>
 
   <div class="row">
@@ -139,8 +167,32 @@
   </div>
 
   <div class="row">
-    <div class="lbl"><span>单位数</span><b id="vCount">90</b></div>
-    <input type="range" id="count" min="20" max="400" step="10" value="90">
+    <div class="lbl"><span>速度阻尼 drag</span><b id="vDrag">0.30</b></div>
+    <input type="range" id="drag" min="0" max="2" step="0.05" value="0.3">
+  </div>
+
+  <div class="row">
+    <div class="lbl"><span>单位数</span><b id="vCount">210</b></div>
+    <input type="range" id="count" min="20" max="400" step="10" value="210">
+  </div>
+
+  <div class="row">
+    <div class="wrow" style="margin-top:7px">
+      <span>停滞补力 阈值/加速度</span>
+      <span style="display:flex;gap:4px">
+        <input type="number" id="stallSpeed" value="60" step="1" min="0" max="150" style="width:47px" title="低于该速度时补力（px/s），0 = 关闭">
+        <input type="number" id="stallAccel" value="100" step="1" min="0" max="300" style="width:47px" title="补力加速度（px/s²）">
+      </span>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="row">
+    <div class="lbl"><span>小队参数</span></div>
+    <div class="wrow"><span>同队分离 ×</span><input type="number" id="wSepIntra" value="0.85" step="0.05" min="0" max="3"></div>
+    <div class="wrow"><span>跨队分离 ×</span><input type="number" id="wSepInter" value="0.85" step="0.05" min="0" max="3"></div>
+    <div class="wrow"><span>命令到达半径</span><input type="number" id="arriveR" value="46" step="2" min="4" max="300"></div>
   </div>
 </div>
 
@@ -154,15 +206,19 @@
 </div>
 
 <div class="legend">
-  <span>自主</span><span class="grad"></span><span>听令</span>
+  <span>暗 = 自主</span><span class="grad"></span><span>亮 = 听令</span>
+  <span style="margin-left:10px;color:#3f5064">│</span>
+  <span>色相 = 小队</span>
 </div>
 
 <div class="hint">
-  <kbd>左键点击/拖拽</kbd> 下达移动命令 &nbsp;·&nbsp;
+  <kbd>Shift + 拖拽</kbd> 框选 &nbsp;·&nbsp;
+  <kbd>1</kbd>–<kbd>4</kbd> 编入 / 切换小队 &nbsp;·&nbsp;
+  <kbd>0</kbd> 移出小队 &nbsp;·&nbsp;
+  <kbd>左键</kbd> 给当前小队下达控制点 &nbsp;·&nbsp;
   <kbd>右键</kbd> 清除 &nbsp;·&nbsp;
   <kbd>空格</kbd> 暂停 &nbsp;·&nbsp;
-  <kbd>R</kbd> 重置 &nbsp;·&nbsp;
-  <kbd>鼠标悬停</kbd> 查看区半径
+  <kbd>R</kbd> 重置
 </div>
 
 <script>
@@ -195,19 +251,45 @@
 
   const S = {
     paused: false,
-    omega: 1.1,
+    omega: 0.5,
     wSep: 1.40, wAli: 0.85, wCoh: 0.75, wCmd: 1.20,
     rRep: 24, rOri: 52, rAtt: 96,
-    count: 90,
-    goal: null,
+    drag: 0.30,        // 速度阻尼（1/s），让无命令的部队自然停下
+    stallSpeed: 60,    // 低于该速度时补力（px/s）；设为 0 即关闭
+    stallAccel: 100,   // 补力加速度（px/s²）
+    count: 210,
+    // 小队相关
+    wSepIntra: 0.85,   // 同队分离倍率（允许挤）
+    wSepInter: 0.85,   // 跨队分离倍率（别纠缠）
+    arriveR: 46,       // 控制点到达减速半径
+    activeSquad: 0,    // 当前小队（下控制点的对象）
     mouse: { x: -999, y: -999 }
   };
 
-  let units = [];
+  const SQUAD_DEF = [
+    { key: "A", hue: 205 },
+    { key: "B", hue: 25 },
+    { key: "C", hue: 145 },
+    { key: "D", hue: 285 }
+  ];
 
-  // 调试钩子（控制台可读：__S.goal / __S.omega / units.length）
+  function makeSquads() {
+    return SQUAD_DEF.map((d, i) => ({
+      id: i, key: d.key, hue: d.hue,
+      goal: null,
+      cx: 0, cy: 0, cn: 0
+    }));
+  }
+
+  let squads = makeSquads();
+  let units = [];
+  let selection = null;   // Set<unit>，框选结果
+  let selBox = null;      // {x0,y0,x1,y1}，拖拽中的框
+
+  // 调试钩子
   window.__S = S;
   Object.defineProperty(window, "__U", { get: () => units });
+  Object.defineProperty(window, "__SQ", { get: () => squads });
 
   // ---------- 核函数：把 Couzin 的硬边界"软化"成权重 ----------
   const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
@@ -229,23 +311,67 @@
   // ---------- 初始化 ----------
   function spawn() {
     units = [];
+    squads = makeSquads();
+    selection = null;
+    selBox = null;
+
     const cx = W * 0.5, cy = H * 0.5;
-    const R = Math.min(W, H) * 0.32;
-    for (let i = 0; i < S.count; i++) {
+    const R = Math.min(W, H) * 0.26;
+    const N = S.count;
+    const perSquad = Math.floor(N * 0.92 / 4);
+    const strayCount = N - perSquad * 4;
+
+    const spots = [];
+    for (let s = 0; s < 4; s++) {
+      const a = -Math.PI / 2 + s * Math.PI / 2 + Math.PI / 4;
+      spots.push({ x: cx + Math.cos(a) * R * 1.35, y: cy + Math.sin(a) * R * 1.35 });
+    }
+
+    for (let s = 0; s < 4; s++) {
+      const c = spots[s];
+      for (let k = 0; k < perSquad; k++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.sqrt(Math.random()) * R * 0.5;
+        const ang = Math.random() * Math.PI * 2;
+        units.push({
+          x: c.x + Math.cos(a) * r,
+          y: c.y + Math.sin(a) * r,
+          vx: Math.cos(ang) * SPD * 0.6,
+          vy: Math.sin(ang) * SPD * 0.6,
+          squad: s,
+          alpha: 0,
+          cAll: 0
+        });
+      }
+    }
+    // 掉队散兵：随机散布，靠"归属半径"被最近小队吸走
+    for (let k = 0; k < strayCount; k++) {
       const a = Math.random() * Math.PI * 2;
-      const r = Math.sqrt(Math.random()) * R;
+      const r = Math.sqrt(Math.random()) * Math.min(W, H) * 0.42;
       const ang = Math.random() * Math.PI * 2;
       units.push({
         x: cx + Math.cos(a) * r,
         y: cy + Math.sin(a) * r,
-        vx: Math.cos(ang) * SPD * 0.7,
-        vy: Math.sin(ang) * SPD * 0.7,
-        alpha: 0,     // 本帧的命令服从度（仅用于显示）
-        cAll: 0,      // 吸引半径内的邻居总数
-        nbrs: []      // 用于可视化的邻居索引
+        vx: Math.cos(ang) * SPD * 0.6,
+        vy: Math.sin(ang) * SPD * 0.6,
+        squad: -1,
+        alpha: 0,
+        cAll: 0
       });
     }
-    S.goal = null;
+  }
+
+  // ---------- 小队重心（UI 与调试用） ----------
+  function computeCenters() {
+    const cx = [0, 0, 0, 0], cy = [0, 0, 0, 0], cn = [0, 0, 0, 0];
+    for (const u of units) {
+      if (u.squad >= 0) { cx[u.squad] += u.x; cy[u.squad] += u.y; cn[u.squad]++; }
+    }
+    for (let s = 0; s < squads.length; s++) {
+      squads[s].cn = cn[s];
+      squads[s].cx = cn[s] ? cx[s] / cn[s] : 0;
+      squads[s].cy = cn[s] ? cy[s] / cn[s] : 0;
+    }
   }
 
   // ---------- 物理 ----------
@@ -256,16 +382,19 @@
     const rAtt2 = rAtt * rAtt;
     const n = units.length;
 
+    computeCenters();
+
     let sumAlpha = 0, sumCmd = 0, sumNb = 0, sumSpd = 0;
 
     for (let i = 0; i < n; i++) {
       const u = units[i];
+      const mine = u.squad;
 
       // 累加器
       let sx = 0, sy = 0, sw = 0;          // 分离（已指向反方向）
       let avx = 0, avy = 0, aw = 0;        // 对齐（邻居速度加权和）
       let cpx = 0, cpy = 0, cw = 0;        // 凝聚（邻居位置加权和）
-      let cRep = 0, cOri = 0, cAll = 0;
+      let cAll = 0;
 
       for (let j = 0; j < n; j++) {
         if (i === j) continue;
@@ -276,13 +405,23 @@
         const d = Math.sqrt(d2);
         cAll++;
 
+        // 吸附规则：
+        //   已编队 → 只认同队（队友之间才有吸引与定向）
+        //   散兵   → 被附近任何"有队"的邻居吸引（单向：散兵会被拉进队伍，队伍不会被散兵拖住）
+        // 没有半径参数——能不能被吸走，完全由自然感知半径 r₃ 决定。
+        const same = (mine >= 0 && mine === o.squad) || (mine < 0 && o.squad >= 0);
+
+        // 分离：全局，跨队更强
         if (d < rRep) {
-          cRep++;
-          const w = sepW(d, rRep);
+          const mul = (same || mine < 0 || o.squad < 0) ? S.wSepIntra : S.wSepInter;
+          const w = sepW(d, rRep) * mul;
           sx -= (dx / d) * w; sy -= (dy / d) * w; sw += w;
         }
+
+        // 对齐 / 凝聚：仅同队
+        if (!same) continue;
+
         if (d < rOri) {
-          cOri++;
           const w = aliW(d, rRep);
           avx += o.vx * w; avy += o.vy * w; aw += w;
         }
@@ -293,15 +432,16 @@
       u.cAll = cAll;
       sumNb += cAll;
 
-      // ---- 命令通道 ----
-      let cdx = 0, cdy = 0, cmdMag = 0, distGoal = Infinity;
-      if (S.goal) {
-        cdx = S.goal.x - u.x; cdy = S.goal.y - u.y;
-        distGoal = Math.hypot(cdx, cdy) || 1e-6;
+      // ---- 命令通道：只吃本小队的控制点 ----
+      let cdx = 0, cdy = 0, cmdMag = 0;
+      const sq = u.squad >= 0 ? squads[u.squad] : null;
+      if (sq && sq.goal) {
+        cdx = sq.goal.x - u.x; cdy = sq.goal.y - u.y;
+        const distGoal = Math.hypot(cdx, cdy) || 1e-6;
         cdx /= distGoal; cdy /= distGoal;
         cmdMag = S.omega * S.wCmd;
         // 到达减速，避免绕圈
-        if (distGoal < 46) cmdMag *= distGoal / 46;
+        if (distGoal < S.arriveR) cmdMag *= distGoal / S.arriveR;
       }
 
       // ===== 软化 Couzin：加权求和 =====
@@ -315,9 +455,10 @@
         Sy += S.wSep * (dvy - u.vy);
       }
       if (aw > 1e-6) {
-        const L = Math.hypot(avx, avy);
-        if (L > 1e-3) {
-          const dvx = (avx / L) * SPD, dvy = (avy / L) * SPD;
+        // 邻居的平均速度（保留幅值）。注意不能归一化到 SPD——
+        // 那样"对齐"会变成一台永不停机的马达，让无命令的部队永远巡航。
+        const dvx = avx / aw, dvy = avy / aw;
+        if (dvx * dvx + dvy * dvy > 1) {
           Sx += S.wAli * (dvx - u.vx);
           Sy += S.wAli * (dvy - u.vy);
         }
@@ -351,12 +492,18 @@
       u.vx += Fx * dt;
       u.vy += Fy * dt;
 
+      // 速度阻尼
+      if (S.drag > 0) {
+        const damp = Math.exp(-S.drag * dt);
+        u.vx *= damp; u.vy *= damp;
+      }
+
       const sp = Math.hypot(u.vx, u.vy);
       if (sp > SPD) { u.vx *= SPD / sp; u.vy *= SPD / sp; }
-      if (sp < 12) {  // 防止完全停滞
+      if (S.stallSpeed > 0 && S.stallAccel > 0 && sp < S.stallSpeed) {  // 防止完全停滞
         const ang0 = Math.atan2(u.vy || 1, u.vx || 0);
-        u.vx += Math.cos(ang0) * 24 * dt;
-        u.vy += Math.sin(ang0) * 24 * dt;
+        u.vx += Math.cos(ang0) * S.stallAccel * dt;
+        u.vy += Math.sin(ang0) * S.stallAccel * dt;
       }
 
       u.x += u.vx * dt;
@@ -385,12 +532,11 @@
   }
 
   // ---------- 渲染 ----------
-  function alphaColor(a) {
-    // 冷 → 暖：蓝 → 紫 → 橙（避免蓝橙互补造成的灰色中点）
-    const h = 205 + a * 175;
-    const s = 85;
-    const l = 38 + a * 22;
-    return "hsl(" + h + "," + s + "%," + l + "%)";
+  // 色相 = 小队，亮度 = 服从度 α
+  function unitColor(u) {
+    const l = 32 + u.alpha * 28;
+    if (u.squad < 0) return "hsl(215,18%," + l.toFixed(1) + "%)";
+    return "hsl(" + squads[u.squad].hue + ",82%," + l.toFixed(1) + "%)";
   }
 
   function findFocus() {
@@ -408,24 +554,28 @@
     ctx.fillStyle = "#07090d";
     ctx.fillRect(0, 0, W, H);
 
-    // 目标标记
-    if (S.goal) {
-      const t = performance.now() / 1000;
-      const pulse = 1 + Math.sin(t * 4) * 0.12;
+    // 各小队的控制点
+    const tnow = performance.now() / 1000;
+    const pulse = 1 + Math.sin(tnow * 4) * 0.12;
+    for (const sq of squads) {
+      if (!sq.goal) continue;
+      const active = sq.id === S.activeSquad;
+      const a = active ? 1 : 0.55;
+      const c = "hsla(" + sq.hue + ",85%,62%,";
       ctx.save();
-      ctx.strokeStyle = "rgba(255,150,80,.85)";
-      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = c + (a * 0.85) + ")";
+      ctx.lineWidth = active ? 1.8 : 1.2;
       ctx.beginPath();
-      ctx.arc(S.goal.x, S.goal.y, 15 * pulse, 0, Math.PI * 2);
+      ctx.arc(sq.goal.x, sq.goal.y, 14 * pulse, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.strokeStyle = "rgba(255,150,80,.30)";
+      ctx.strokeStyle = c + (a * 0.25) + ")";
       ctx.beginPath();
-      ctx.arc(S.goal.x, S.goal.y, 26 * pulse, 0, Math.PI * 2);
+      ctx.arc(sq.goal.x, sq.goal.y, 25 * pulse, 0, Math.PI * 2);
       ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(S.goal.x - 5, S.goal.y); ctx.lineTo(S.goal.x + 5, S.goal.y);
-      ctx.moveTo(S.goal.x, S.goal.y - 5); ctx.lineTo(S.goal.x, S.goal.y + 5);
-      ctx.strokeStyle = "rgba(255,150,80,.9)";
+      ctx.moveTo(sq.goal.x - 5, sq.goal.y); ctx.lineTo(sq.goal.x + 5, sq.goal.y);
+      ctx.moveTo(sq.goal.x, sq.goal.y - 5); ctx.lineTo(sq.goal.x, sq.goal.y + 5);
+      ctx.strokeStyle = c + a + ")";
       ctx.stroke();
       ctx.restore();
     }
@@ -477,8 +627,37 @@
       ctx.lineTo(-2.4, 0);
       ctx.lineTo(-4.2, -3.6);
       ctx.closePath();
-      ctx.fillStyle = alphaColor(u.alpha);
+      ctx.fillStyle = unitColor(u);
       ctx.fill();
+      ctx.restore();
+    }
+
+    // 选中单位的白圈
+    if (selection && selection.size) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,255,255,.75)";
+      ctx.lineWidth = 1.2;
+      for (const u of selection) {
+        ctx.beginPath();
+        ctx.arc(u.x, u.y, 9, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // 框选矩形
+    if (selBox) {
+      const x = Math.min(selBox.x0, selBox.x1);
+      const y = Math.min(selBox.y0, selBox.y1);
+      const w = Math.abs(selBox.x1 - selBox.x0);
+      const h = Math.abs(selBox.y1 - selBox.y0);
+      ctx.save();
+      ctx.fillStyle = "rgba(110,190,255,.10)";
+      ctx.strokeStyle = "rgba(140,210,255,.75)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([5, 4]);
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeRect(x + 0.5, y + 0.5, w, h);
       ctx.restore();
     }
 
@@ -496,7 +675,7 @@
     ctx.font = "600 11px 'Segoe UI', system-ui, sans-serif";
     ctx.fillStyle = "rgba(110,200,255,.85)";
     ctx.textAlign = "center";
-    ctx.fillText("软化 Couzin · 加权求和 · 命令作为加性力参与竞争", W / 2, 30);
+    ctx.fillText("同队才吸引 · 分离全局 · 命令按小队分发", W / 2, 30);
     ctx.restore();
   }
 
@@ -517,10 +696,22 @@
     el.cmd.textContent = Math.round(statCmd) + "%";
     el.nb.textContent = statNb.toFixed(1);
     el.spd.textContent = Math.round(statSpd);
+
+    // 小队人数与指令状态
+    let un = 0;
+    for (const u of units) if (u.squad < 0) un++;
+    for (let i = 0; i < squads.length; i++) {
+      const e1 = document.getElementById("sqN" + i);
+      if (e1) e1.textContent = squads[i].cn;
+      const row = squadRows[i];
+      if (row) row.querySelector("em").textContent = squads[i].goal ? "指令" : "";
+    }
+    const eu = document.getElementById("sqNu");
+    if (eu) eu.textContent = un;
   }
 
   // ---------- 输入 ----------
-  let dragging = false;
+  let dragging = false;   // 是否正在下达控制点
 
   function toWorld(e) {
     const r = cvs.getBoundingClientRect();
@@ -528,44 +719,107 @@
   }
 
   cvs.addEventListener("pointerdown", e => {
-    if (e.button === 2) { S.goal = null; return; }
+    if (e.button === 2) {
+      const sq = squads[S.activeSquad];
+      if (sq) sq.goal = null;
+      return;
+    }
     if (e.button !== 0) return;
-    dragging = true;
-    cvs.setPointerCapture(e.pointerId);
-    S.goal = toWorld(e);
+    try { cvs.setPointerCapture(e.pointerId); } catch (err) { /* 合成事件没有活动指针 */ }
+    const p = toWorld(e);
+
+    if (e.shiftKey) {                 // Shift + 拖拽 = 框选
+      selBox = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+      selection = null;
+      return;
+    }
+    dragging = true;                  // 左键 = 给当前小队下达控制点
+    const sq = squads[S.activeSquad];
+    if (sq) sq.goal = { x: p.x, y: p.y };
   });
+
   cvs.addEventListener("pointermove", e => {
-    S.mouse = toWorld(e);
-    if (dragging) S.goal = toWorld(e);
+    const p = toWorld(e);
+    S.mouse = p;
+    if (selBox) { selBox.x1 = p.x; selBox.y1 = p.y; return; }
+    if (dragging) {
+      const sq = squads[S.activeSquad];
+      if (sq) sq.goal = { x: p.x, y: p.y };
+    }
   });
-  cvs.addEventListener("pointerup", () => { dragging = false; });
+
+  cvs.addEventListener("pointerup", () => {
+    dragging = false;
+    if (!selBox) return;
+    const x0 = Math.min(selBox.x0, selBox.x1), x1 = Math.max(selBox.x0, selBox.x1);
+    const y0 = Math.min(selBox.y0, selBox.y1), y1 = Math.max(selBox.y0, selBox.y1);
+    selBox = null;
+    if (x1 - x0 < 4 && y1 - y0 < 4) { selection = null; return; }
+    const picked = new Set();
+    for (const u of units) {
+      if (u.x >= x0 && u.x <= x1 && u.y >= y0 && u.y <= y1) picked.add(u);
+    }
+    selection = picked.size ? picked : null;
+  });
+
   cvs.addEventListener("pointerleave", () => {
     dragging = false;
+    selBox = null;
     S.mouse = { x: -999, y: -999 };
   });
   cvs.addEventListener("contextmenu", e => e.preventDefault());
 
-  // 社交权重：四个数字输入框直接写进 S
-  const W_DEF = { wSep: 1.40, wAli: 0.85, wCoh: 0.75, wCmd: 1.20 };
-  function bindWeights() {
-    for (const k of Object.keys(W_DEF)) {
+  // ---------- 数值输入框 ----------
+  const NUM_DEFS = [
+    ["wSep", 2, 1.40], ["wAli", 2, 0.85], ["wCoh", 2, 0.75], ["wCmd", 2, 1.20],
+    ["wSepIntra", 2, 0.85], ["wSepInter", 2, 0.85],
+    ["arriveR", 0, 46],
+    ["stallSpeed", 0, 60], ["stallAccel", 0, 100]
+  ];
+  function bindNumbers() {
+    for (const [k, dec] of NUM_DEFS) {
       const inp = document.getElementById(k);
+      if (!inp) continue;
       const apply = () => {
         const v = parseFloat(inp.value);
         S[k] = Number.isFinite(v) && v >= 0 ? v : 0;
       };
       inp.addEventListener("input", apply);
-      inp.addEventListener("change", () => { inp.value = S[k].toFixed(2); });
+      inp.addEventListener("change", () => { inp.value = S[k].toFixed(dec); });
       apply();
     }
   }
-  bindWeights();
+  bindNumbers();
   document.getElementById("wResetBtn").onclick = () => {
-    for (const k of Object.keys(W_DEF)) {
-      S[k] = W_DEF[k];
-      document.getElementById(k).value = W_DEF[k].toFixed(2);
+    for (const [k, dec, def] of NUM_DEFS) {
+      S[k] = def;
+      const inp = document.getElementById(k);
+      if (inp) inp.value = def.toFixed(dec);
     }
   };
+
+  // ---------- 小队列表 ----------
+  const squadRows = Array.from(document.querySelectorAll(".sqrow"));
+  function syncSquadRows() {
+    for (const r of squadRows) {
+      r.classList.toggle("on", parseInt(r.dataset.i, 10) === S.activeSquad);
+    }
+  }
+  function applySquadToSelection(idx) {
+    if (!selection || !selection.size) return false;
+    for (const u of selection) { u.squad = idx; }
+    selection = null;
+    return true;
+  }
+  for (const r of squadRows) {
+    r.addEventListener("click", () => {
+      const i = parseInt(r.dataset.i, 10);
+      if (i < 0) { applySquadToSelection(-1); return; }
+      applySquadToSelection(i);
+      S.activeSquad = i;
+      syncSquadRows();
+    });
+  }
 
   function bindSlider(id, valId, key, fmt) {
     const inp = document.getElementById(id);
@@ -580,6 +834,7 @@
     sync();
   }
   bindSlider("omega", "vOmega", "omega", v => v.toFixed(2));
+  bindSlider("drag", "vDrag", "drag", v => v.toFixed(2));
   bindSlider("rep", "vRep", "rRep");
   bindSlider("ori", "vOri", "rOri");
   bindSlider("att", "vAtt", "rAtt");
@@ -588,8 +843,15 @@
   window.addEventListener("keydown", e => {
     const k = e.key.toLowerCase();
     if (k === " ") { S.paused = !S.paused; e.preventDefault(); }
-    else if (k === "r") spawn();
-    else if (k === "escape") S.goal = null;
+    else if (k === "r") { spawn(); syncSquadRows(); }
+    else if (k === "escape") selection = null;
+    else if (k >= "1" && k <= "4") {
+      const idx = parseInt(k, 10) - 1;
+      applySquadToSelection(idx);
+      S.activeSquad = idx;
+      syncSquadRows();
+    }
+    else if (k === "0") { applySquadToSelection(-1); }
     else if (k === "+" || k === "=") {
       const inp = document.getElementById("omega");
       inp.value = Math.min(1.5, parseFloat(inp.value) + 0.05).toFixed(2);
@@ -603,6 +865,7 @@
 
   // ---------- 主循环 ----------
   spawn();
+  syncSquadRows();
 
   let last = performance.now();
   let acc = 0;
