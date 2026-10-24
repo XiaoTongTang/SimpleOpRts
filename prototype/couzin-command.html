@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Couzin 群体指挥原型</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #07090d; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    color: #c9d6e4; user-select: none;
+  }
+  canvas { display: block; cursor: crosshair; }
+
+  .panel {
+    position: fixed; top: 16px; left: 16px; width: 254px;
+    background: rgba(14, 19, 27, 0.86);
+    border: 1px solid rgba(90, 130, 180, 0.22);
+    border-radius: 10px; padding: 12px 13px;
+    backdrop-filter: blur(10px);
+    font-size: 12px; line-height: 1.5;
+  }
+  .panel h1 {
+    font-size: 12.5px; font-weight: 600; letter-spacing: .3px;
+    color: #e8f1fb; margin-bottom: 3px;
+  }
+  .sub { font-size: 10.5px; color: #5e7288; margin-bottom: 11px; }
+
+  .row { margin-bottom: 9px; }
+  .row:last-child { margin-bottom: 0; }
+  .lbl {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 10.5px; color: #7e93a8; margin-bottom: 4px;
+    letter-spacing: .2px;
+  }
+  .lbl b { color: #a9c6e4; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 3px; border-radius: 2px;
+    background: #22303f; outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 11px; height: 11px; border-radius: 50%;
+    background: #4fa3e8; border: none; cursor: pointer;
+    box-shadow: 0 0 0 3px rgba(79,163,232,.16);
+  }
+  input[type=range]:disabled { opacity: .35; cursor: not-allowed; }
+
+  .wrow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
+  .wrow span { font-size: 10.5px; color: #7e93a8; letter-spacing: .2px; }
+  .wrow input[type=number] {
+    width: 66px; padding: 3px 6px; text-align: right;
+    font-size: 11px; font-variant-numeric: tabular-nums;
+    background: #111a24; border: 1px solid #24313f; border-radius: 5px;
+    color: #cfe0f0; font-family: inherit; outline: none;
+    -moz-appearance: textfield;
+  }
+  .wrow input[type=number]::-webkit-outer-spin-button,
+  .wrow input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .wrow input[type=number]:focus { border-color: #2f6a9e; background: #16222f; }
+  .reset { color: #4f7fa8; cursor: pointer; font-weight: 400; }
+  .reset:hover { color: #8ecdff; }
+
+  .divider { height: 1px; background: #1c2632; margin: 10px 0; }
+
+  .stats {
+    position: fixed; top: 16px; right: 16px; width: 208px;
+    background: rgba(14, 19, 27, 0.86);
+    border: 1px solid rgba(90, 130, 180, 0.22);
+    border-radius: 10px; padding: 12px 13px;
+    backdrop-filter: blur(10px); font-size: 11px;
+  }
+  .stat { display: flex; justify-content: space-between; margin-bottom: 6px; }
+  .stat span { color: #6e8499; }
+  .stat b { color: #cfe0f0; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .bar { height: 5px; border-radius: 3px; background: #1a2430; overflow: hidden; margin: 3px 0 10px; }
+  .bar i { display: block; height: 100%; width: 0%; transition: width .12s linear; border-radius: 3px; }
+
+  .hint {
+    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+    font-size: 11.5px; color: #566b80; white-space: nowrap;
+  }
+  .hint kbd {
+    display: inline-block; padding: 1px 5px; margin: 0 1px;
+    background: #16202c; border: 1px solid #26333f; border-radius: 4px;
+    color: #8ba4bb; font-family: inherit; font-size: 10.5px;
+  }
+
+  .legend {
+    position: fixed; bottom: 14px; left: 16px; font-size: 10.5px; color: #566b80;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .legend .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .grad {
+    width: 92px; height: 6px; border-radius: 3px;
+    background: linear-gradient(90deg, rgb(70,200,255), rgb(255,110,55));
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="panel">
+  <h1>Couzin 群体指挥原型</h1>
+  <div class="sub">命令 = 偏好方向 × ω，与社交力竞争</div>
+
+  <div class="row">
+    <div class="lbl"><span>社交权重</span><b id="wResetBtn" class="reset">↺ 默认</b></div>
+    <div class="wrow"><span>分离 w₁</span><input type="number" id="wSep" value="1.40" step="0.05" min="0" max="5"></div>
+    <div class="wrow"><span>对齐 w₂</span><input type="number" id="wAli" value="0.85" step="0.05" min="0" max="5"></div>
+    <div class="wrow"><span>凝聚 w₃</span><input type="number" id="wCoh" value="0.75" step="0.05" min="0" max="5"></div>
+    <div class="wrow"><span>命令 w₄</span><input type="number" id="wCmd" value="1.20" step="0.05" min="0" max="5"></div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="row">
+    <div class="lbl"><span>ω 服从度</span><b id="vOmega">1.10</b></div>
+    <input type="range" id="omega" min="0" max="1.5" step="0.01" value="1.1">
+  </div>
+
+  <div class="row">
+    <div class="lbl"><span>排斥区 r₁</span><b id="vRep">24</b></div>
+    <input type="range" id="rep" min="6" max="40" step="1" value="24">
+  </div>
+
+  <div class="row">
+    <div class="lbl"><span>定向区 r₂</span><b id="vOri">52</b></div>
+    <input type="range" id="ori" min="20" max="120" step="1" value="52">
+  </div>
+
+  <div class="row">
+    <div class="lbl"><span>吸引区 r₃</span><b id="vAtt">96</b></div>
+    <input type="range" id="att" min="40" max="200" step="1" value="96">
+  </div>
+
+  <div class="row">
+    <div class="lbl"><span>单位数</span><b id="vCount">90</b></div>
+    <input type="range" id="count" min="20" max="400" step="10" value="90">
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat"><span>平均服从度 α</span><b id="sAlpha">0%</b></div>
+  <div class="bar"><i id="bAlpha" style="background:linear-gradient(90deg,#46b8ff,#ff8a3d)"></i></div>
+
+  <div class="stat"><span>命令生效单位</span><b id="sCmd">0%</b></div>
+  <div class="stat"><span>平均邻居数</span><b id="sNb">0</b></div>
+  <div class="stat"><span>平均速度</span><b id="sSpd">0</b></div>
+</div>
+
+<div class="legend">
+  <span>自主</span><span class="grad"></span><span>听令</span>
+</div>
+
+<div class="hint">
+  <kbd>左键点击/拖拽</kbd> 下达移动命令 &nbsp;·&nbsp;
+  <kbd>右键</kbd> 清除 &nbsp;·&nbsp;
+  <kbd>空格</kbd> 暂停 &nbsp;·&nbsp;
+  <kbd>R</kbd> 重置 &nbsp;·&nbsp;
+  <kbd>鼠标悬停</kbd> 查看区半径
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  // ---------- 画布 ----------
+  const cvs = document.getElementById("c");
+  const ctx = cvs.getContext("2d");
+  let W = 0, H = 0;
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    cvs.width = Math.round(W * dpr);
+    cvs.height = Math.round(H * dpr);
+    cvs.style.width = W + "px";
+    cvs.style.height = H + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  // ---------- 参数 ----------
+  const SPD = 96;          // 巡航速度 px/s
+  const MAX_ACCEL = 430;   // 加速度上限
+  const FIXED = 1 / 60;
+
+  // 社交权重由面板输入框直接控制：S.wSep / S.wAli / S.wCoh / S.wCmd
+
+  const S = {
+    paused: false,
+    omega: 1.1,
+    wSep: 1.40, wAli: 0.85, wCoh: 0.75, wCmd: 1.20,
+    rRep: 24, rOri: 52, rAtt: 96,
+    count: 90,
+    goal: null,
+    mouse: { x: -999, y: -999 }
+  };
+
+  let units = [];
+
+  // 调试钩子（控制台可读：__S.goal / __S.omega / units.length）
+  window.__S = S;
+  Object.defineProperty(window, "__U", { get: () => units });
+
+  // ---------- 核函数：把 Couzin 的硬边界"软化"成权重 ----------
+  const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+  function smoothstep(a, b, x) {
+    const t = clamp01((x - a) / (b - a || 1e-6));
+    return t * t * (3 - 2 * t);
+  }
+  // 分离：靠近才强，d→0 时最大
+  function sepW(d, r) { if (d >= r) return 0; const t = 1 - d / r; return t * t; }
+  // 对齐：在排斥区外快速抬升，中距平台
+  function aliW(d, r0) { return smoothstep(r0 * 0.75, r0, d); }
+  // 凝聚：在 (r2, r3) 上的钟形窗，两端为 0
+  function cohW(d, r0, r1) {
+    if (d <= r0 || d >= r1) return 0;
+    const mid = (r0 + r1) * 0.5;
+    return d < mid ? smoothstep(r0, mid, d) : 1 - smoothstep(mid, r1, d);
+  }
+
+  // ---------- 初始化 ----------
+  function spawn() {
+    units = [];
+    const cx = W * 0.5, cy = H * 0.5;
+    const R = Math.min(W, H) * 0.32;
+    for (let i = 0; i < S.count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.sqrt(Math.random()) * R;
+      const ang = Math.random() * Math.PI * 2;
+      units.push({
+        x: cx + Math.cos(a) * r,
+        y: cy + Math.sin(a) * r,
+        vx: Math.cos(ang) * SPD * 0.7,
+        vy: Math.sin(ang) * SPD * 0.7,
+        alpha: 0,     // 本帧的命令服从度（仅用于显示）
+        cAll: 0,      // 吸引半径内的邻居总数
+        nbrs: []      // 用于可视化的邻居索引
+      });
+    }
+    S.goal = null;
+  }
+
+  // ---------- 物理 ----------
+  let statAlpha = 0, statCmd = 0, statNb = 0, statSpd = 0;
+
+  function physics(dt) {
+    const { rRep, rOri, rAtt } = S;
+    const rAtt2 = rAtt * rAtt;
+    const n = units.length;
+
+    let sumAlpha = 0, sumCmd = 0, sumNb = 0, sumSpd = 0;
+
+    for (let i = 0; i < n; i++) {
+      const u = units[i];
+
+      // 累加器
+      let sx = 0, sy = 0, sw = 0;          // 分离（已指向反方向）
+      let avx = 0, avy = 0, aw = 0;        // 对齐（邻居速度加权和）
+      let cpx = 0, cpy = 0, cw = 0;        // 凝聚（邻居位置加权和）
+      let cRep = 0, cOri = 0, cAll = 0;
+
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        const o = units[j];
+        const dx = o.x - u.x, dy = o.y - u.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 > rAtt2 || d2 < 1e-9) continue;
+        const d = Math.sqrt(d2);
+        cAll++;
+
+        if (d < rRep) {
+          cRep++;
+          const w = sepW(d, rRep);
+          sx -= (dx / d) * w; sy -= (dy / d) * w; sw += w;
+        }
+        if (d < rOri) {
+          cOri++;
+          const w = aliW(d, rRep);
+          avx += o.vx * w; avy += o.vy * w; aw += w;
+        }
+        const w2 = cohW(d, rOri, rAtt);
+        if (w2 > 0) { cpx += o.x * w2; cpy += o.y * w2; cw += w2; }
+      }
+
+      u.cAll = cAll;
+      sumNb += cAll;
+
+      // ---- 命令通道 ----
+      let cdx = 0, cdy = 0, cmdMag = 0, distGoal = Infinity;
+      if (S.goal) {
+        cdx = S.goal.x - u.x; cdy = S.goal.y - u.y;
+        distGoal = Math.hypot(cdx, cdy) || 1e-6;
+        cdx /= distGoal; cdy /= distGoal;
+        cmdMag = S.omega * S.wCmd;
+        // 到达减速，避免绕圈
+        if (distGoal < 46) cmdMag *= distGoal / 46;
+      }
+
+      // ===== 软化 Couzin：加权求和 =====
+      let Sx = 0, Sy = 0;   // 社交合力
+      let Cx = 0, Cy = 0;   // 命令力
+
+      if (sw > 1e-6) {
+        const L = Math.hypot(sx, sy) || 1;
+        const dvx = (sx / L) * SPD, dvy = (sy / L) * SPD;
+        Sx += S.wSep * (dvx - u.vx);
+        Sy += S.wSep * (dvy - u.vy);
+      }
+      if (aw > 1e-6) {
+        const L = Math.hypot(avx, avy);
+        if (L > 1e-3) {
+          const dvx = (avx / L) * SPD, dvy = (avy / L) * SPD;
+          Sx += S.wAli * (dvx - u.vx);
+          Sy += S.wAli * (dvy - u.vy);
+        }
+      }
+      if (cw > 1e-6) {
+        const tx0 = cpx / cw - u.x, ty0 = cpy / cw - u.y;
+        const L = Math.hypot(tx0, ty0);
+        if (L > 1e-3) {
+          const dvx = (tx0 / L) * SPD, dvy = (ty0 / L) * SPD;
+          Sx += S.wCoh * (dvx - u.vx);
+          Sy += S.wCoh * (dvy - u.vy);
+        }
+      }
+      if (cmdMag > 1e-6) {
+        Cx += cmdMag * (cdx * SPD - u.vx);
+        Cy += cmdMag * (cdy * SPD - u.vy);
+      }
+
+      let Fx = Sx + Cx, Fy = Sy + Cy;
+
+      // 边界软推（环境力，不计入服从度）
+      const BM = 70, BK = 7;
+      if (u.x < BM) Fx += (BM - u.x) * BK;
+      if (u.x > W - BM) Fx -= (u.x - (W - BM)) * BK;
+      if (u.y < BM) Fy += (BM - u.y) * BK;
+      if (u.y > H - BM) Fy -= (u.y - (H - BM)) * BK;
+
+      const am = Math.hypot(Fx, Fy);
+      if (am > MAX_ACCEL) { Fx = Fx / am * MAX_ACCEL; Fy = Fy / am * MAX_ACCEL; }
+
+      u.vx += Fx * dt;
+      u.vy += Fy * dt;
+
+      const sp = Math.hypot(u.vx, u.vy);
+      if (sp > SPD) { u.vx *= SPD / sp; u.vy *= SPD / sp; }
+      if (sp < 12) {  // 防止完全停滞
+        const ang0 = Math.atan2(u.vy || 1, u.vx || 0);
+        u.vx += Math.cos(ang0) * 24 * dt;
+        u.vy += Math.sin(ang0) * 24 * dt;
+      }
+
+      u.x += u.vx * dt;
+      u.y += u.vy * dt;
+
+      // 服从度 = 命令力在净合力中的份额（用合力而非分量和，因为社交力会互相抵消）
+      const cMag = Math.hypot(Cx, Cy), sMag = Math.hypot(Sx, Sy);
+      const a = cMag / (cMag + sMag + 1e-6);
+      u.alpha = a;
+      sumAlpha += a;
+      if (a > 0.5) sumCmd++;
+
+      // 硬边界兜底
+      if (u.x < 0) { u.x = 0; u.vx = Math.abs(u.vx); }
+      if (u.x > W) { u.x = W; u.vx = -Math.abs(u.vx); }
+      if (u.y < 0) { u.y = 0; u.vy = Math.abs(u.vy); }
+      if (u.y > H) { u.y = H; u.vy = -Math.abs(u.vy); }
+
+      sumSpd += Math.hypot(u.vx, u.vy);
+    }
+
+    statAlpha = n ? sumAlpha / n : 0;
+    statCmd = n ? (sumCmd / n) * 100 : 0;
+    statNb = n ? sumNb / n : 0;
+    statSpd = n ? sumSpd / n : 0;
+  }
+
+  // ---------- 渲染 ----------
+  function alphaColor(a) {
+    // 冷 → 暖：蓝 → 紫 → 橙（避免蓝橙互补造成的灰色中点）
+    const h = 205 + a * 175;
+    const s = 85;
+    const l = 38 + a * 22;
+    return "hsl(" + h + "," + s + "%," + l + "%)";
+  }
+
+  function findFocus() {
+    let best = null, bd = 34 * 34;
+    for (const u of units) {
+      const dx = u.x - S.mouse.x, dy = u.y - S.mouse.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bd) { bd = d2; best = u; }
+    }
+    return best;
+  }
+
+  function render() {
+    // 背景 + 轻微拖影
+    ctx.fillStyle = "#07090d";
+    ctx.fillRect(0, 0, W, H);
+
+    // 目标标记
+    if (S.goal) {
+      const t = performance.now() / 1000;
+      const pulse = 1 + Math.sin(t * 4) * 0.12;
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,150,80,.85)";
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(S.goal.x, S.goal.y, 15 * pulse, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(255,150,80,.30)";
+      ctx.beginPath();
+      ctx.arc(S.goal.x, S.goal.y, 26 * pulse, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(S.goal.x - 5, S.goal.y); ctx.lineTo(S.goal.x + 5, S.goal.y);
+      ctx.moveTo(S.goal.x, S.goal.y - 5); ctx.lineTo(S.goal.x, S.goal.y + 5);
+      ctx.strokeStyle = "rgba(255,150,80,.9)";
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 悬停单位的区半径 + 邻居连线
+    const focus = findFocus();
+    if (focus) {
+      const { rRep, rOri, rAtt } = S;
+
+      ctx.save();
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 5]);
+      ctx.strokeStyle = "rgba(255,90,90,.35)";
+      ctx.beginPath(); ctx.arc(focus.x, focus.y, rRep, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = "rgba(255,215,90,.28)";
+      ctx.beginPath(); ctx.arc(focus.x, focus.y, rOri, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = "rgba(90,160,255,.22)";
+      ctx.beginPath(); ctx.arc(focus.x, focus.y, rAtt, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+
+      const r2 = rAtt * rAtt;
+      for (const o of units) {
+        if (o === focus) continue;
+        const dx = o.x - focus.x, dy = o.y - focus.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 > r2) continue;
+        const d = Math.sqrt(d2);
+        if (d < rRep) ctx.strokeStyle = "rgba(255,90,90,.45)";
+        else if (d < rOri) ctx.strokeStyle = "rgba(255,215,90,.30)";
+        else ctx.strokeStyle = "rgba(90,160,255,.16)";
+        ctx.beginPath();
+        ctx.moveTo(focus.x, focus.y);
+        ctx.lineTo(o.x, o.y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // 单位
+    for (const u of units) {
+      const ang = Math.atan2(u.vy, u.vx);
+      ctx.save();
+      ctx.translate(u.x, u.y);
+      ctx.rotate(ang);
+
+      ctx.beginPath();
+      ctx.moveTo(6.4, 0);
+      ctx.lineTo(-4.2, 3.6);
+      ctx.lineTo(-2.4, 0);
+      ctx.lineTo(-4.2, -3.6);
+      ctx.closePath();
+      ctx.fillStyle = alphaColor(u.alpha);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 焦点高亮
+    if (focus) {
+      ctx.beginPath();
+      ctx.arc(focus.x, focus.y, 11, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(255,255,255,.55)";
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+
+    // 角标
+    ctx.save();
+    ctx.font = "600 11px 'Segoe UI', system-ui, sans-serif";
+    ctx.fillStyle = "rgba(110,200,255,.85)";
+    ctx.textAlign = "center";
+    ctx.fillText("软化 Couzin · 加权求和 · 命令作为加性力参与竞争", W / 2, 30);
+    ctx.restore();
+  }
+
+  // ---------- HUD ----------
+  const el = {
+    alpha: document.getElementById("sAlpha"),
+    bar: document.getElementById("bAlpha"),
+    cmd: document.getElementById("sCmd"),
+    nb: document.getElementById("sNb"),
+    spd: document.getElementById("sSpd")
+  };
+  let hudT = 0;
+  function updateHUD(now) {
+    if (now - hudT < 110) return;
+    hudT = now;
+    el.alpha.textContent = Math.round(statAlpha * 100) + "%";
+    el.bar.style.width = Math.round(statAlpha * 100) + "%";
+    el.cmd.textContent = Math.round(statCmd) + "%";
+    el.nb.textContent = statNb.toFixed(1);
+    el.spd.textContent = Math.round(statSpd);
+  }
+
+  // ---------- 输入 ----------
+  let dragging = false;
+
+  function toWorld(e) {
+    const r = cvs.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  cvs.addEventListener("pointerdown", e => {
+    if (e.button === 2) { S.goal = null; return; }
+    if (e.button !== 0) return;
+    dragging = true;
+    cvs.setPointerCapture(e.pointerId);
+    S.goal = toWorld(e);
+  });
+  cvs.addEventListener("pointermove", e => {
+    S.mouse = toWorld(e);
+    if (dragging) S.goal = toWorld(e);
+  });
+  cvs.addEventListener("pointerup", () => { dragging = false; });
+  cvs.addEventListener("pointerleave", () => {
+    dragging = false;
+    S.mouse = { x: -999, y: -999 };
+  });
+  cvs.addEventListener("contextmenu", e => e.preventDefault());
+
+  // 社交权重：四个数字输入框直接写进 S
+  const W_DEF = { wSep: 1.40, wAli: 0.85, wCoh: 0.75, wCmd: 1.20 };
+  function bindWeights() {
+    for (const k of Object.keys(W_DEF)) {
+      const inp = document.getElementById(k);
+      const apply = () => {
+        const v = parseFloat(inp.value);
+        S[k] = Number.isFinite(v) && v >= 0 ? v : 0;
+      };
+      inp.addEventListener("input", apply);
+      inp.addEventListener("change", () => { inp.value = S[k].toFixed(2); });
+      apply();
+    }
+  }
+  bindWeights();
+  document.getElementById("wResetBtn").onclick = () => {
+    for (const k of Object.keys(W_DEF)) {
+      S[k] = W_DEF[k];
+      document.getElementById(k).value = W_DEF[k].toFixed(2);
+    }
+  };
+
+  function bindSlider(id, valId, key, fmt) {
+    const inp = document.getElementById(id);
+    const out = document.getElementById(valId);
+    const sync = () => {
+      const v = parseFloat(inp.value);
+      S[key] = v;
+      out.textContent = fmt ? fmt(v) : v;
+      if (key === "count") { spawn(); }
+    };
+    inp.addEventListener("input", sync);
+    sync();
+  }
+  bindSlider("omega", "vOmega", "omega", v => v.toFixed(2));
+  bindSlider("rep", "vRep", "rRep");
+  bindSlider("ori", "vOri", "rOri");
+  bindSlider("att", "vAtt", "rAtt");
+  bindSlider("count", "vCount", "count");
+
+  window.addEventListener("keydown", e => {
+    const k = e.key.toLowerCase();
+    if (k === " ") { S.paused = !S.paused; e.preventDefault(); }
+    else if (k === "r") spawn();
+    else if (k === "escape") S.goal = null;
+    else if (k === "+" || k === "=") {
+      const inp = document.getElementById("omega");
+      inp.value = Math.min(1.5, parseFloat(inp.value) + 0.05).toFixed(2);
+      inp.dispatchEvent(new Event("input"));
+    } else if (k === "-" || k === "_") {
+      const inp = document.getElementById("omega");
+      inp.value = Math.max(0, parseFloat(inp.value) - 0.05).toFixed(2);
+      inp.dispatchEvent(new Event("input"));
+    }
+  });
+
+  // ---------- 主循环 ----------
+  spawn();
+
+  let last = performance.now();
+  let acc = 0;
+
+  function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.1);
+    last = now;
+
+    if (!S.paused) {
+      acc += dt;
+      let guard = 0;
+      while (acc >= FIXED && guard++ < 5) {
+        physics(FIXED);
+        acc -= FIXED;
+      }
+      if (acc > FIXED) acc = 0;
+    }
+
+    render();
+    updateHUD(now);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
