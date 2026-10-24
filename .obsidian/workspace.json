@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "design/己方与敌方Couzin算法设计.md",
+                "file": "design/分层架构与每层职责.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "己方与敌方Couzin算法设计"
+              "title": "分层架构与每层职责"
             }
           }
         ]
@@ -99,7 +99,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "design/己方与敌方Couzin算法设计.md",
+                "file": "design/分层架构与每层职责.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -118,7 +118,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "design/己方与敌方Couzin算法设计.md",
+                "file": "design/分层架构与每层职责.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
@@ -161,7 +161,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "design/己方与敌方Couzin算法设计.md",
+                "file": "design/分层架构与每层职责.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -190,11 +190,12 @@
   },
   "active": "28972d5c9316b4c4",
   "lastOpenFiles": [
+    "prototype/couzin-command.html~RF7512285.TMP",
+    "design/己方与敌方Couzin算法设计.md",
     "design/分层架构与每层职责.md",
     "design/softened-couzin-primer.md",
     "design/flocking-rts-unit-control.md",
     "design/squad-mechanics-couzin.md",
-    "design/己方与敌方Couzin算法设计.md",
     "design/behavior-algorithms.md",
     "design/control-architecture.md",
     "prototype/couzin-command.html",
