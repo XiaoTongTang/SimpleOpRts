@@ -198,6 +198,10 @@
         <input type="number" id="omega" step="0.05" min="0" max="3" style="width:50px">
       </span>
     </div>
+    <div class="wrow">
+      <span>本单位数</span>
+      <input type="number" id="members" step="1" min="0" max="200">
+    </div>
     <div class="wrow" style="margin-top:6px">
       <span style="color:#4f6480;font-size:10px">复制参数到</span>
       <span style="display:flex;gap:4px">
@@ -213,14 +217,10 @@
     <div class="lbl"><span>全局</span></div>
     <div class="pgrid">
       <div class="wrow"><span>阻尼 drag</span><input type="number" id="drag" step="0.05" min="0" max="3"></div>
-      <div class="wrow"><span>同队分离×</span><input type="number" id="wSepIntra" step="0.05" min="0" max="3"></div>
+      <div class="wrow"><span>到达半径</span><input type="number" id="arriveR" step="2" min="4" max="300"></div>
       <div class="wrow"><span>停滞阈值</span><input type="number" id="stallSpeed" step="1" min="0" max="150"></div>
       <div class="wrow"><span>停滞补力</span><input type="number" id="stallAccel" step="1" min="0" max="300"></div>
-      <div class="wrow"><span>跨队分离×</span><input type="number" id="wSepInter" step="0.05" min="0" max="3"></div>
-      <div class="wrow"><span>到达半径</span><input type="number" id="arriveR" step="2" min="4" max="300"></div>
     </div>
-    <div class="lbl" style="margin-top:6px"><span>单位数</span><b id="vCount">210</b></div>
-    <input type="range" id="count" min="20" max="400" step="10" value="210">
   </div>
 </div>
 
@@ -282,9 +282,6 @@
     drag: 0.30,        // 速度阻尼（1/s）
     stallSpeed: 60,    // 低于该速度时补力（px/s）；0 = 关闭
     stallAccel: 100,   // 补力加速度（px/s²）
-    count: 210,
-    wSepIntra: 0.85,   // 同队分离倍率
-    wSepInter: 0.85,   // 跨队分离倍率
     arriveR: 46,       // 控制点到达减速半径
     activeSquad: 0,    // 当前编辑的小队
     mouse: { x: -999, y: -999 }
@@ -296,7 +293,8 @@
     ["omega", 2, 1.10], ["wCmd", 2, 1.20],
     ["wThreat", 2, 1.50], ["wSeek", 2, 1.20],
     ["r4", 0, 90], ["r5", 0, 300],
-    ["rRep", 0, 24], ["rOri", 0, 52], ["rAtt", 0, 96]
+    ["rRep", 0, 24], ["rOri", 0, 52], ["rAtt", 0, 96],
+    ["members", 0, 24]
   ];
   function makeParams() {
     const p = {};
@@ -359,17 +357,16 @@
 
     const cx = W * 0.5, cy = H * 0.5;
     const R = Math.min(W, H) * 0.26;
-    const N = S.count;
-    const perSquad = Math.floor(N * 0.92 / 8);
-    const strayCount = N - perSquad * 8;
+    const STRAY = 12;
 
-    // 蓝方在左，红方在右，各 4 队纵向排开
+    // 蓝方在左，红方在右，各 4 队纵向排开；每队人数由各队 members 决定
     for (let s = 0; s < 8; s++) {
       const f = s < 4 ? 0 : 1;
       const row = s % 4;
       const bx = f === 0 ? W * 0.24 : W * 0.76;
       const by = H * (0.16 + row * 0.225);
-      for (let k = 0; k < perSquad; k++) {
+      const n = Math.max(0, Math.floor(squads[s].p.members));
+      for (let k = 0; k < n; k++) {
         const a = Math.random() * Math.PI * 2;
         const r = Math.sqrt(Math.random()) * R * 0.42;
         const ang = Math.random() * Math.PI * 2;
@@ -385,7 +382,7 @@
       }
     }
     // 掉队散兵：随机散布，会被附近任意队伍吸引
-    for (let k = 0; k < strayCount; k++) {
+    for (let k = 0; k < STRAY; k++) {
       const a = Math.random() * Math.PI * 2;
       const r = Math.sqrt(Math.random()) * Math.min(W, H) * 0.42;
       const ang = Math.random() * Math.PI * 2;
@@ -412,6 +409,37 @@
     for (const s of squads) {
       if (s.cn) { s.cx /= s.cn; s.cy /= s.cn; }
     }
+  }
+
+  // ---------- 调整某小队的单位数（就地增删，不重建全场） ----------
+  function resizeSquad(id, target) {
+    const sq = squads[id];
+    if (!sq) return;
+    target = Math.max(0, Math.floor(target || 0));
+    let cur = 0;
+    for (const u of units) if (u.squad === id) cur++;
+    if (target === cur) return;
+
+    if (target > cur) {
+      const cx = sq.cn ? sq.cx : W * (sq.faction === 0 ? 0.24 : 0.76);
+      const cy = sq.cn ? sq.cy : H * 0.5;
+      for (let k = cur; k < target; k++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.sqrt(Math.random()) * 55;
+        units.push({
+          x: cx + Math.cos(a) * r,
+          y: cy + Math.sin(a) * r,
+          vx: 0, vy: 0,
+          squad: id, alpha: 0, cAll: 0
+        });
+      }
+    } else {
+      let drop = cur - target;
+      for (let i = units.length - 1; i >= 0 && drop > 0; i--) {
+        if (units[i].squad === id) { units.splice(i, 1); drop--; }
+      }
+    }
+    computeCenters();
   }
 
   // ---------- 物理 ----------
@@ -460,10 +488,9 @@
         // 同队判定：已编队只认同队；散兵被附近任何有编队的单位吸引
         const same = (mine >= 0 && mine === o.squad) || (mine < 0 && o.squad >= 0);
 
-        // ---- 分离：全局（含敌方），跨队更强 ----
+        // ---- 分离：全局，不分小队、不分阵营 ----
         if (d < rRep) {
-          const mul = (same || mine < 0 || o.squad < 0) ? S.wSepIntra : S.wSepInter;
-          const w = sepW(d, rRep) * mul;
+          const w = sepW(d, rRep);
           sx -= (dx / d) * w; sy -= (dy / d) * w; sw += w;
         }
 
@@ -824,7 +851,10 @@
       if (!inp) continue;
       const apply = () => {
         const v = parseFloat(inp.value);
-        if (Number.isFinite(v) && v >= 0) currentParams()[k] = v;
+        if (Number.isFinite(v) && v >= 0) {
+          currentParams()[k] = v;
+          if (k === "members") resizeSquad(S.activeSquad, v);
+        }
       };
       inp.addEventListener("input", apply);
       inp.addEventListener("change", () => { inp.value = currentParams()[k].toFixed(dec); });
@@ -861,10 +891,9 @@
   }
 
   const GLOBAL_DEFS = [
-    ["drag", 2], ["stallSpeed", 0], ["stallAccel", 0],
-    ["wSepIntra", 2], ["wSepInter", 2], ["arriveR", 0], ["count", 0]
+    ["drag", 2], ["stallSpeed", 0], ["stallAccel", 0], ["arriveR", 0]
   ];
-  const DEFAULT_GLOBAL = { drag: 0.30, stallSpeed: 60, stallAccel: 100, wSepIntra: 0.85, wSepInter: 0.85, arriveR: 46, count: 210 };
+  const DEFAULT_GLOBAL = { drag: 0.30, stallSpeed: 60, stallAccel: 100, arriveR: 46 };
 
   bindParamInputs();
   syncParamInputs();
@@ -878,15 +907,18 @@
     const src = squads[S.activeSquad];
     if (!src) return;
     const p = { ...src.p };
-    for (const s of squads) {
-      if (s.faction === src.faction) s.p = { ...p };
-    }
+    const hit = squads.filter(s => s.faction === src.faction);
+    for (const s of hit) s.p = { ...p };
     syncParamInputs();
+    computeCenters();
+    for (const s of hit) resizeSquad(s.id, s.p.members);
   };
   document.getElementById("copyAll").onclick = () => {
     const src = { ...currentParams() };
     for (const s of squads) s.p = { ...src };
     syncParamInputs();
+    computeCenters();
+    for (const s of squads) resizeSquad(s.id, s.p.members);
   };
 
   // ---------- 小队选择 ----------
@@ -907,20 +939,6 @@
       selectSquad(parseInt(c.dataset.i, 10));
     });
   }
-
-  function bindSlider(id, valId, key, fmt) {
-    const inp = document.getElementById(id);
-    const out = document.getElementById(valId);
-    const sync = () => {
-      const v = parseFloat(inp.value);
-      S[key] = v;
-      if (out) out.textContent = fmt ? fmt(v) : v;
-      if (key === "count") { spawn(); }
-    };
-    inp.addEventListener("input", sync);
-    sync();
-  }
-  bindSlider("count", "vCount", "count");
 
   window.addEventListener("keydown", e => {
     // 【关键】输入框内不触发任何游戏快捷键。
