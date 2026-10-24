@@ -4,7 +4,13 @@
 **前提** 底层为「软化 Couzin」：`F = w_sep·F_sep + w_ali·F_ali + w_coh·F_coh + ω·w_cmd·F_cmd`
 
 ---
+我已经想到了如何基于这套couzin模型改造出 小队机制，以及小队的 “驻守区域、按路线进攻” 等指令；couzin模型本质上就是“给单位施加力”来控制单位；
 
+那么小队机制的实现方式为，加入了小队的同一队的单位才会互相受到“吸引力”与“定向力”，非同队单位之间不计算吸引力与定向力；
+
+未加入小队单位会对所有其余单位计算吸引力与定向力；而“命令力”则是分小队设置的；A小队不会受到B小队的命令力；
+
+接下来讲小队的驻守区域、按路线进攻的实现方式：这两个指令都基于“命令力”实现、驻守区域是划定一片矩形或圆形区域，一旦小队超出区域范围，则会受到命令力的约束，使其移动回区域内；若已经在区域内，则不会受到命令力；进攻则是划定一条直线、弧线或折线线，使得命令力的命令点在线上面缓慢移动，使得小队中的单位追随这个命令点，以达到推进的效果；请你评审我的设计思路并落实为一篇新的文档
 ## 0. 总评
 
 **方向是对的，而且比之前的"任务契约系统"好得多。**
@@ -199,11 +205,11 @@ dir = normalize(goal - p);
 效果：整个小队像一条**横扫的横线**向前压，宽度由 `width` 控制，单位不会互相挤到中间。
 
 > **两种模式都要有，因为它们是两种战术：**
->
-> | 模式 | 命令目标 | 产生的队形 | 用途 |
-> |---|---|---|---|
-> | **横线 Front** | 推进线上的投影点 | 宽正面 | 正面进攻、压线 |
-> | **纵队 Column** | 单个命令点 | 纵队 / 长蛇 | 穿插、过窄口、行军 |
+
+ | 模式 | 命令目标 | 产生的队形 | 用途 |
+ |---|---|---|---|
+ | **横线 Front** | 推进线上的投影点 | 宽正面 | 正面进攻、压线 |
+ | **纵队 Column** | 单个命令点 | 纵队 / 长蛇 | 穿插、过窄口、行军 |
 
 急转弯时 `normal` 会快速旋转 → 需要限制它的角速度（`≤ 2~3 rad/s`），或者允许它"切角"（内部弯道走弦而不是弧）。
 
@@ -255,12 +261,12 @@ interface GoalField {
 }
 ```
 
-| 指令 | 场的构造 |
-|---|---|
-| **驻守圆/矩形** | `d = sdf(pos)`；`strength = d > 0 ? smoothstep(0, MARGIN, d) : 0`；`dir = grad(sdf)` |
-| **进攻（横线）** | 路径投影得到 `Front`；`strength = 1`（或端点淡入淡出）；`dir = normalize(投影点 − pos)` |
-| **进攻（纵队）** | 同上，但 `goal = center` |
-| **集结 Regroup** | `dir = normalize(anchor − pos)`；`strength = min(1, dist / R)` |
+| 指令             | 场的构造                                                                               |
+| -------------- | ---------------------------------------------------------------------------------- |
+| **驻守圆/矩形**     | `d = sdf(pos)`；`strength = d > 0 ? smoothstep(0, MARGIN, d) : 0`；`dir = grad(sdf)` |
+| **进攻（横线）**     | 路径投影得到 `Front`；`strength = 1`（或端点淡入淡出）；`dir = normalize(投影点 − pos)`                |
+| **进攻（纵队）**     | 同上，但 `goal = center`                                                               |
+| **集结 Regroup** | `dir = normalize(anchor − pos)`；`strength = min(1, dist / R)`                      |
 
 **收益**：单位层的代码永远只有一段，新增指令 = 新增一个场。这与"命令是意图不是坐标"的原则一致。
 
@@ -283,53 +289,6 @@ interface GoalField {
 
 ---
 
-## 7. 伪代码
-
-```js
-// ---------- 每帧，每个单位 ----------
-let Sx = 0, Sy = 0, Cx = 0, Cy = 0;
-const mySquad = u.squad;
-
-for (const o of neighborsWithin(u, rAtt)) {
-  const d = dist(u, o);
-  const same = (o.squad === mySquad && mySquad !== null);
-
-  // 分离：全局，跨队更强
-  if (d < rRep) {
-    const w = sepW(d, rRep) * (same ? 0.85 : 1.35);
-    Sx -= (dx / d) * w * wSep;
-    Sy -= (dy / d) * w * wSep;
-  }
-
-  // 对齐 + 凝聚：仅同队
-  if (!same) continue;
-
-  if (d < rOri) {
-    const w = aliW(d, rRep) * wAli;
-    avx += o.vx * w; avy += o.vy * w;
-  }
-  const w2 = cohW(d, rOri, rAtt) * wCoh;
-  if (w2 > 0) { cpx += o.x * w2; cpy += o.y * w2; cw += w2; }
-}
-// ... 由 avx/avy、cpx/cw 生成 steering ...
-
-// 命令力：本队专属
-const order = squads[mySquad]?.order;
-if (order) {
-  const { dir, strength } = order.sample(u.pos);
-  const k = ω * wCmd * strength;
-  Cx += k * (dir.x * SPD - u.vx);
-  Cy += k * (dir.y * SPD - u.vy);
-}
-```
-
-```js
-// ---------- 每小队，每帧 ----------
-squad.center = mean(members.map(m => m.pos));
-if (squad.order?.type === 'advance') squad.order.tick(dt, squad.center);
-```
-
----
 
 ## 8. 性能
 
