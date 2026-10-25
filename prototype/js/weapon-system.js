@@ -17,8 +17,7 @@ export const WEAPONS = {
     id: "ray", name: "贯穿射线",
     range: 250, dmg: 12, cd: 1.30,
     pierceShield: true,
-    shape: "rect", width: 28,
-    sweep: 0.10                  // 冲击波推进时长
+    shape: "rect", width: 28
   },
   laser: {
     id: "laser", name: "激光",
@@ -35,6 +34,11 @@ export const WEAPONS = {
 };
 
 export const WEAPON_IDS = ["ray", "laser", "torpedo"];
+
+// 贯穿射线的两段式时序（视觉用）
+const RAY_AIM = 0.06;    // 先展示瞄准线
+const RAY_FLY = 0.11;    // 再射出拖尾小方块
+const RAY_HOLD = 0.10;   // 飞完后的余晖
 
 /**
  * 一帧的武器结算。
@@ -99,20 +103,24 @@ export function stepWeapons(units, squads, projectiles, dt, hits, now = 0, fx = 
         const perp = Math.abs(rx * uy - ry * ux);   // 到中轴的垂距
         if (perp > halfW) continue;
         hits.push({ t: o, dmg: w.dmg, pierce: w.pierceShield });
-        // 命中火花：按"沿光束的距离"延迟出现，光束扫到哪就亮到哪
+        // 只有视觉有延迟：火花等小方块飞到该敌人处才亮
         if (fx) fx.push({
           type: "impact", hue,
           x: o.x, y: o.y,
-          delay: Math.min(w.sweep, (along / w.range) * w.sweep),
+          delay: RAY_AIM + (along / w.range) * RAY_FLY,
           life: 0.20, max: 0.20
         });
       }
+      // 视觉：先亮瞄准线，再飞出一个拖尾小方块
       if (fx) fx.push({
-        type: "ray", faction: myF, hue,
-        x1: u.x, y1: u.y, ux, uy,
-        len: w.range, halfW,
-        sweep: w.sweep,
-        life: 0.16, max: 0.16
+        type: "rayshot", faction: myF, hue,
+        x1: u.x, y1: u.y,
+        x2: u.x + ux * w.range,
+        y2: u.y + uy * w.range,
+        aim: RAY_AIM, fly: RAY_FLY,
+        seed: Math.random() * Math.PI * 2,
+        life: RAY_AIM + RAY_FLY + RAY_HOLD,
+        max: RAY_AIM + RAY_FLY + RAY_HOLD
       });
 
     } else if (w.shape === "circle") {

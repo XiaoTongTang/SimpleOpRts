@@ -459,7 +459,7 @@ import {
     hits.length = 0;
     stepWeapons(units, squads, projectiles, dt, hits, combatT, fx);
 
-    // 结算伤害 + 移除阵亡单位
+    // 伤害一律立即结算（动画层面的错峰由 fx 自己负责）
     if (hits.length) {
       let anyDead = false;
       for (const h of hits) {
@@ -621,96 +621,100 @@ import {
       const hue = e.hue === undefined ? 200 : e.hue;    // 统一用所属小队的色相
 
       if (e.type === "beam") {
-        // 激光：细束，颜色跟随所属小队的色相
+        // 瞬时线段：激光与贯穿射线共用（贯穿射线只是略粗）
+        const ws = e.w || 1;
         ctx.save();
         ctx.globalCompositeOperation = "lighter";
         ctx.lineCap = "round";
 
         // 外发光（很薄，压暗）
         ctx.strokeStyle = "hsla(" + hue + ",72%,52%," + (0.20 * t) + ")";
-        ctx.lineWidth = 2.4;
+        ctx.lineWidth = 2.4 * ws;
         ctx.beginPath(); ctx.moveTo(e.x1, e.y1); ctx.lineTo(e.x2, e.y2); ctx.stroke();
 
         // 芯（同色系高光，不用纯白）
         ctx.strokeStyle = "hsla(" + hue + ",82%,74%," + (0.58 * t) + ")";
-        ctx.lineWidth = 0.9;
+        ctx.lineWidth = 0.9 * ws;
         ctx.beginPath(); ctx.moveTo(e.x1, e.y1); ctx.lineTo(e.x2, e.y2); ctx.stroke();
 
         // 枪口闪光（小）
         ctx.beginPath();
-        ctx.arc(e.x1, e.y1, 1.1 + 1.8 * t, 0, Math.PI * 2);
+        ctx.arc(e.x1, e.y1, (1.1 + 1.8 * t) * ws, 0, Math.PI * 2);
         ctx.fillStyle = "hsla(" + hue + ",82%,66%," + (0.45 * t) + ")";
         ctx.fill();
 
         // 命中点闪光（小）
         ctx.beginPath();
-        ctx.arc(e.x2, e.y2, 1.6 + 2.4 * t, 0, Math.PI * 2);
+        ctx.arc(e.x2, e.y2, (1.6 + 2.4 * t) * ws, 0, Math.PI * 2);
         ctx.fillStyle = "hsla(" + hue + ",55%,86%," + (0.65 * t) + ")";
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(e.x2, e.y2, 3.4 + 3.6 * t, 0, Math.PI * 2);
+        ctx.arc(e.x2, e.y2, (3.4 + 3.6 * t) * ws, 0, Math.PI * 2);
         ctx.strokeStyle = "hsla(" + hue + ",78%,60%," + (0.28 * t) + ")";
         ctx.lineWidth = 0.9;
         ctx.stroke();
         ctx.restore();
 
-      } else if (e.type === "ray") {
-        // 贯穿射线：矩形边界恒定，只有一道冲击波前在里面推进
-        const total = e.max;
-        const elapsed = total - e.life;
-        const sweepDur = e.sweep || 0.07;
-        const waveFade = 0.015;
-        const waveDone = sweepDur + waveFade;
-
-        // 冲击波：只扫到 80% 处就淡出
-        const prog = Math.min(1, elapsed / sweepDur);
-        const reach = e.len * 0.8 * prog;
-        const waveT = elapsed < sweepDur
+      } else if (e.type === "rayshot") {
+        // 贯穿射线：① 先亮瞄准线 ② 再射出带拖尾的小方块
+        const el = e.max - e.life;
+        const aim = e.aim, fly = e.fly;
+        const dx = e.x2 - e.x1, dy = e.y2 - e.y1;
+        const len = Math.hypot(dx, dy) || 1;
+        const ux = dx / len, uy = dy / len;
+        const prog = el <= aim ? 0 : Math.min(1, (el - aim) / fly);
+        // 瞄准线：瞄准阶段满亮，方块飞出后逐渐淡去
+        const lineT = el <= aim
           ? 1
-          : Math.max(0, 1 - (elapsed - sweepDur) / waveFade);
-
-        // 边界线：等冲击波消失之后才开始淡出
-        const lineT = elapsed < waveDone
-          ? 1
-          : Math.max(0, 1 - (elapsed - waveDone) / Math.max(0.001, total - waveDone));
+          : Math.max(0.12, 1 - ((el - aim) / Math.max(0.001, e.max - aim)) * 1.15);
 
         ctx.save();
-        ctx.translate(e.x1, e.y1);
-        ctx.rotate(Math.atan2(e.uy, e.ux));
         ctx.globalCompositeOperation = "lighter";
 
-        // 两侧边界线 + 向内的微弱泛光（只渗一点点，中间保持空）
-        const glow = Math.min(e.halfW * 0.30, 4.5);
-        for (const sgn of [-1, 1]) {
-          const yEdge = sgn * e.halfW;
-          const yIn = sgn * (e.halfW - glow);
-          const gp = ctx.createLinearGradient(0, yEdge, 0, yIn);
-          gp.addColorStop(0, "hsla(" + hue + ",85%,68%," + (0.22 * lineT) + ")");
-          gp.addColorStop(1, "hsla(" + hue + ",85%,68%,0)");
-          ctx.fillStyle = gp;
-          ctx.fillRect(0, Math.min(yEdge, yIn), e.len, glow);
-
-          ctx.strokeStyle = "hsla(" + hue + ",78%,66%," + (0.55 * lineT) + ")";
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(0, yEdge); ctx.lineTo(e.len, yEdge);
-          ctx.stroke();
-        }
-
-        // 冲击波前：与边界线留出间隙，不贴着
-        if (waveT > 0) {
-          const hh = Math.max(1, e.halfW - 2.5);
-          const tail = Math.min(36, reach);
-          const x0 = reach - tail;
-          const gw = ctx.createLinearGradient(x0, 0, reach, 0);
-          gw.addColorStop(0, "hsla(" + hue + ",88%,58%,0)");
-          gw.addColorStop(0.55, "hsla(" + hue + ",88%,64%," + (0.30 * waveT) + ")");
-          gw.addColorStop(0.85, "hsla(" + hue + ",82%,74%," + (0.62 * waveT) + ")");
-          gw.addColorStop(1, "hsla(" + hue + ",70%,84%," + (0.95 * waveT) + ")");
-          ctx.fillStyle = gw;
-          ctx.fillRect(x0, -hh, tail, hh * 2);
-        }
+        // ① 瞄准线（压暗，只交代方向，不抢戏）
+        ctx.strokeStyle = "hsla(" + hue + ",70%,55%," + (0.15 * lineT) + ")";
+        ctx.lineWidth = 1.8;
+        ctx.beginPath(); ctx.moveTo(e.x1, e.y1); ctx.lineTo(e.x2, e.y2); ctx.stroke();
+        ctx.strokeStyle = "hsla(" + hue + ",75%,80%," + (0.26 * lineT) + ")";
+        ctx.lineWidth = 0.8;
+        ctx.beginPath(); ctx.moveTo(e.x1, e.y1); ctx.lineTo(e.x2, e.y2); ctx.stroke();
         ctx.restore();
+
+        // ② 拖尾小方块：飞到 80% 之后开始变淡，到尽头完全消失
+        if (prog > 0) {
+          const fade = prog <= 0.8 ? 1 : Math.max(0, 1 - (prog - 0.8) / 0.2);
+          const hx = e.x1 + dx * prog;
+          const hy = e.y1 + dy * prog;
+          const trav = len * prog;
+          const trailLen = Math.min(80, trav);
+          const seed = e.seed || 0;
+
+          if (fade > 0.01) {
+            ctx.save();
+            ctx.globalCompositeOperation = "lighter";
+            for (let k = 14; k >= 1; k--) {
+              const f = k / 14;                       // 0 靠近方块 → 1 尾端
+              const d = f * trailLen;
+              const wob = (Math.sin(d * 0.30 + seed) * 1.6 +
+                           Math.sin(d * 0.12 + seed * 2.3) * 1.0) * f;
+              ctx.beginPath();
+              ctx.arc(hx - ux * d - uy * wob, hy - uy * d + ux * wob,
+                      2.9 * (1 - f) + 0.5, 0, Math.PI * 2);
+              ctx.fillStyle = "hsla(" + hue + ",78%,62%," + (0.34 * (1 - f) * fade) + ")";
+              ctx.fill();
+            }
+            ctx.restore();
+
+            ctx.save();
+            ctx.translate(hx, hy);
+            ctx.rotate(Math.atan2(uy, ux));
+            ctx.fillStyle = "hsla(" + hue + ",85%,84%," + (0.95 * fade) + ")";
+            ctx.fillRect(-3.2, -2.0, 6.4, 4.0);
+            ctx.fillStyle = "hsla(" + hue + ",35%,98%," + (0.95 * fade) + ")";
+            ctx.fillRect(0.6, -1.0, 1.8, 2.0);       // 前端高光，指明朝向
+            ctx.restore();
+          }
+        }
 
       } else if (e.type === "impact") {
         // 命中火花：一列敌人同时亮起来，表达"被打穿了"
