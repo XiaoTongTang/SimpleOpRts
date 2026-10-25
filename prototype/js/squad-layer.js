@@ -74,23 +74,43 @@ export const SQUAD_DEF = [
 
 export const FACTION_COLOR = ["#4fa3e8", "#e8614f"];
 
+/**
+ * 按模板造一个小队（不加入数组）
+ * @param def  { key?, hue?, sat?, loose?, weapon?, p?: {...} }  只写要覆盖的参数
+ * @param id   小队 id（必须等于它在 squads 数组里的下标）
+ * @param faction 0 / 1
+ */
+export function makeSquad(def, id, faction) {
+  const p = makeParams();
+  if (def.p) Object.assign(p, def.p);
+  p.weapon = def.weapon || "laser";
+  return {
+    id,
+    key: def.key || def.name || ("T" + id),
+    faction: def.faction !== undefined ? def.faction : faction,
+    hue: def.hue === undefined ? 200 : def.hue,
+    sat: def.sat || 82,
+    lum: def.lum || 0,          // 颜色亮度偏移（正=提亮，散兵这类杂兵用负数压暗）
+    flatLum: def.flatLum === undefined ? null : def.flatLum,  // 给定则亮度恒定，不随 α 变
+    loose: !!def.loose,
+    p,
+    goal: null, target: null,
+    cx: 0, cy: 0, cn: 0
+  };
+}
+
+/** 追加一个小队，返回它的 id */
+export function addSquad(squads, def, faction) {
+  const id = squads.length;
+  squads.push(makeSquad(def, id, faction));
+  return id;
+}
+
 export function makeSquads() {
   return SQUAD_DEF.map((d, i) => {
-    const p = makeParams();
-    p.weapon = "laser";                 // 兵种：攻击方式的载体
-    if (d.loose) { p.members = 6; p.chargers = 0; }
-    return {
-      id: i,
-      key: d.key,
-      faction: d.faction,
-      hue: d.hue,
-      sat: d.sat || 82,
-      loose: !!d.loose,
-      p,
-      goal: null,     // 控制点（L3 下达）
-      target: null,   // 统一寻敌目标（本层每帧计算）
-      cx: 0, cy: 0, cn: 0
-    };
+    const sq = makeSquad(d, i, d.faction);
+    if (d.loose) { sq.p.members = 6; sq.p.chargers = 0; }
+    return sq;
   });
 }
 

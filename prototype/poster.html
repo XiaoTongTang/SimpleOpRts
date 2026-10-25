@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>小球舰队大战 · 宣传海报 16:9</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #000;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  canvas { display: block; box-shadow: 0 20px 70px rgba(0,0,0,.9); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+import {
+  addSquad, computeCenters, computeSquadTargets
+} from "./js/squad-layer.js";
+import { stepUnits } from "./js/group-layer.js";
+import { stepWeapons } from "./js/weapon-system.js";
+import {
+  applyDamage, stepRegen, stepChargers, initCombat
+} from "./js/defense-system.js";
+import { drawUnits, drawProjectiles } from "./js/render-units.js";
+import { drawFx } from "./js/render-fx.js";
+import { TEMPLATES, templateDef } from "./js/templates.js";
+
+/* ============================================================
+   小球舰队大战 · 16:9 海报
+   ------------------------------------------------------------
+   画面不是"画"出来的，是**跑真实战斗模拟截的一帧**：
+   单位、激光、贯穿射线、鱼雷、爆炸、护盾成型、充能连线
+   全部走游戏本体的 render-units.js / render-fx.js / weapon-system.js
+   ============================================================ */
+
+// ---------- 固定随机数：保证每次打开都是同一张图 ----------
+let seed = 0x9e3779b9;
+Math.random = function () {
+  seed ^= seed << 13; seed >>>= 0;
+  seed ^= seed >> 17;
+  seed ^= seed << 5;  seed >>>= 0;
+  return seed / 4294967296;
+};
+
+// ---------- 画布 ----------
+const CW = 1920, CH = 1080;            // 输出尺寸 16:9
+const WORLD_W = 1080, WORLD_H = 607.5; // 模拟世界尺寸（16:9）
+const SCALE = CW / WORLD_W;            // 1.7778
+
+const cvs = document.getElementById("c");
+const ctx = cvs.getContext("2d");
+
+const FONT = "'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif";
+
+// ---------- 模拟状态 ----------
+const S = {
+  drag: 0.30, stallSpeed: 60, stallAccel: 100, arriveR: 46,
+  shieldHp: 80, chargerRange: 140, chargerCd: 2.5,
+  energyMax: 100, energyCost: 25, energyRegen: 8
+};
+const FIXED = 1 / 60;
+
+let squads = [];
+let units = [];
+let projectiles = [];
+let fx = [];
+const hits = [];
+let combatT = 0;
+
+// ---------- 造舰队 ----------
+// 5 个战斗群在一个紧凑方块里排开，并给一个指向中线的命令点，
+// 让他们主动压上去 —— 最终形成左右对垒的横向前线
+const SLOTS = [
+  { dx: -22, dy: -98 },
+  { dx: 24, dy: -49 },
+  { dx: -20, dy: 0 },
+  { dx: 22, dy: 49 },
+  { dx: -24, dy: 98 }
+];
+
+function buildFleet(faction, baseX, goalX) {
+  const cy0 = WORLD_H / 2;
+
+  TEMPLATES.forEach((tpl, i) => {
+    const id = addSquad(squads, templateDef(tpl, faction), faction);
+    const sq = squads[id];
+    const n = Math.max(1, Math.floor(sq.p.members));
+
+    const slot = SLOTS[i % SLOTS.length];
+    const cx = baseX + slot.dx;
+    const cy = cy0 + slot.dy;
+
+    // 命令点指向中线：靠命令力压上去
+    sq.goal = { x: goalX, y: cy };
+
+    const chargerP = (sq.p.chargers || 0) / Math.max(1, sq.p.members);
+
+    for (let k = 0; k < n; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.sqrt(Math.random()) * 28;
+      const u = {
+        x: cx + Math.cos(a) * r,
+        y: cy + Math.sin(a) * r,
+        vx: (faction === 0 ? 1 : -1) * 50,
+        vy: 0,
+        squad: id, alpha: 0, cAll: 0
+      };
+      units.push(u);
+      initCombat(u, sq, Math.random() < chargerP ? 0 : 99);
+    }
+    sq.cn += n;
+  });
+}
+
+// ---------- 一帧推进 ----------
+function stepFx(dt) {
+  for (let i = fx.length - 1; i >= 0; i--) {
+    const e = fx[i];
+    if (e.delay > 0) { e.delay -= dt; continue; }
+    e.life -= dt;
+    if (e.life <= 0) fx.splice(i, 1);
+  }
+}
+
+function tick() {
+  combatT += FIXED;
+  computeCenters(units, squads);
+  computeSquadTargets(units, squads);
+  stepUnits(units, squads, S, FIXED, WORLD_W, WORLD_H);
+
+  stepRegen(units, FIXED);
+  stepChargers(units, squads, S, FIXED, fx);
+
+  hits.length = 0;
+  stepWeapons(units, squads, projectiles, FIXED, hits, combatT, fx);
+
+  if (hits.length) {
+    let dead = false;
+    for (const h of hits) if (applyDamage(h.t, h.dmg, h.pierce)) dead = true;
+    if (dead) {
+      let w = 0;
+      for (let i = 0; i < units.length; i++) {
+        if (units[i].hp > 0) units[w++] = units[i];
+      }
+      units.length = w;
+    }
+  }
+
+  stepFx(FIXED);
+}
+
+function countSide(f) {
+  let n = 0;
+  for (const u of units) if (squads[u.squad].faction === f) n++;
+  return n;
+}
+
+function meanX(f) {
+  let s = 0, n = 0;
+  for (const u of units) {
+    if (squads[u.squad].faction === f) { s += u.x; n++; }
+  }
+  return n ? s / n : 0;
+}
+
+// ---------- 跑模拟，挑一帧"打得最热闹"的 ----------
+function simulate() {
+  let best = null;
+
+  for (let i = 0; i < 60 * 20; i++) {
+    tick();
+
+    const t = i * FIXED;
+    if (t < 1.6) continue;
+
+    const b = countSide(0), r = countSide(1);
+    if (b < 42 || r < 42) break;      // 一边被打残了就停
+
+    // 画面热闹 = 特效多 + 有鱼雷在空中 + 双方都还有兵
+    // （不按"贴得近"加权：要的是两军对射的瞬间，不是绞杀在一起）
+    const score = fx.length * 1.0
+                + projectiles.length * 2.6
+                + Math.min(24, Math.min(b, r) / 3.5);
+
+    if (!best || score > best.score) {
+      best = {
+        score,
+        units: units.map(u => Object.assign({}, u)),
+        projectiles: projectiles.map(p => Object.assign({}, p)),
+        fx: fx.map(e => Object.assign({}, e))
+      };
+    }
+  }
+
+  if (best) {
+    units = best.units;
+    projectiles = best.projectiles;
+    fx = best.fx;
+  }
+}
+
+// ---------- 绘制 ----------
+function drawBackground() {
+  ctx.fillStyle = "#07090d";
+  ctx.fillRect(0, 0, CW, CH);
+
+  // 中心微光，让画面不闷
+  const g = ctx.createRadialGradient(CW / 2, CH * 0.42, 60, CW / 2, CH * 0.42, CH * 0.85);
+  g.addColorStop(0, "rgba(46,96,150,.16)");
+  g.addColorStop(0.5, "rgba(20,40,70,.06)");
+  g.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, CW, CH);
+
+  // 四周压暗
+  const v = ctx.createRadialGradient(CW / 2, CH / 2, CH * 0.32, CW / 2, CH / 2, CH * 1.05);
+  v.addColorStop(0, "rgba(0,0,0,0)");
+  v.addColorStop(1, "rgba(0,0,0,.78)");
+  ctx.fillStyle = v;
+  ctx.fillRect(0, 0, CW, CH);
+}
+
+function drawTitle() {
+  // 底部压暗，保证标题压得住画面
+  const g = ctx.createLinearGradient(0, CH - 340, 0, CH);
+  g.addColorStop(0, "rgba(3,5,10,0)");
+  g.addColorStop(0.55, "rgba(3,5,10,.74)");
+  g.addColorStop(1, "rgba(3,5,10,.95)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, CH - 340, CW, 340);
+
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  // 大标题
+  ctx.font = "900 152px " + FONT;
+  ctx.shadowColor = "rgba(70,170,255,.8)";
+  ctx.shadowBlur = 52;
+  ctx.fillStyle = "#f4f9ff";
+  ctx.fillText("小球舰队大战", CW / 2, CH - 152);
+  ctx.shadowBlur = 0;
+
+  // 英文
+  ctx.font = "500 32px " + FONT;
+  ctx.fillStyle = "rgba(115,195,245,.88)";
+  ctx.fillText("P L I N K O   F L E E T   W A R S", CW / 2, CH - 60);
+
+  ctx.restore();
+}
+
+function render() {
+  drawBackground();
+
+  // 世界 → 屏幕（在基础缩放之上再推近镜头，让舰队填满画幅）
+  const CAM = 1.62;
+  const FOCUS_W = { x: 540, y: 300 };   // 世界焦点
+  const FOCUS_S = { x: CW / 2, y: 420 }; // 屏幕落点
+
+  ctx.save();
+  ctx.translate(FOCUS_S.x, FOCUS_S.y);
+  ctx.scale(SCALE * CAM, SCALE * CAM);
+  ctx.translate(-FOCUS_W.x, -FOCUS_W.y);
+
+  drawUnits(ctx, units, squads);
+  drawFx(ctx, fx);
+  drawProjectiles(ctx, projectiles);
+
+  ctx.restore();
+
+  drawTitle();
+}
+
+// ---------- 启动 ----------
+function build() {
+  seed = 0x9e3779b9;
+  squads = [];
+  units = [];
+  projectiles = [];
+  fx = [];
+  hits.length = 0;
+  combatT = 0;
+
+  // 两军从两侧向中线推进，撞在一起
+  buildFleet(0, 296, 600);
+  buildFleet(1, 784, 480);
+
+  simulate();
+}
+
+function fit() {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cvs.width = CW * dpr;
+  cvs.height = CH * dpr;
+
+  const s = Math.min(window.innerWidth / CW, window.innerHeight / CH);
+  cvs.style.width = Math.round(CW * s) + "px";
+  cvs.style.height = Math.round(CH * s) + "px";
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  build();
+  render();
+}
+
+window.addEventListener("resize", fit);
+fit();
+
+window.__EXPORT = () => cvs.toDataURL("image/png");
+window.__STATS = () => ({
+  单位: units.length,
+  蓝: countSide(0), 红: countSide(1),
+  特效: fx.length,
+  鱼雷: projectiles.length,
+  特效种类: [...new Set(fx.map(e => e.type))]
+});
+</script>
+</body>
+</html>

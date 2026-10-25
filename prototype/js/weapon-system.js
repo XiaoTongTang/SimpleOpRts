@@ -15,19 +15,19 @@
 export const WEAPONS = {
   ray: {
     id: "ray", name: "贯穿射线",
-    range: 250, dmg: 10, cd: 1.30,
+    range: 250, dmg: 20, cd: 2.6,
     pierceShield: true,
     shape: "rect", width: 28
   },
   laser: {
     id: "laser", name: "激光",
-    range: 300, dmg: 6, cd: 0.50,
+    range: 300, dmg: 24, cd: 2,
     pierceShield: false,
     shape: "point"
   },
   torpedo: {
     id: "torpedo", name: "鱼雷",
-    range: 380, dmg: 8, cd: 3.00,
+    range: 380, dmg: 18, cd: 6.00,
     pierceShield: false,
     shape: "circle", radius: 50, speed: 210
   }

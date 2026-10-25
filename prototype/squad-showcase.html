@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>战斗群作战演示</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #07090d; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    color: #c9d6e4; user-select: none;
+  }
+  canvas { display: block; }
+
+  /* 右下角控制按钮（落在规则栏内） */
+  #ctrl {
+    position: fixed;
+    right: 20px;
+    bottom: 18px;
+    width: 320px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    z-index: 10;
+  }
+  #ctrl button {
+    font: 500 14px "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    color: #9fb4c8;
+    background: rgba(22,32,44,.92);
+    border: 1px solid #26333f;
+    border-radius: 6px;
+    padding: 9px 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    transition: background .12s, color .12s;
+  }
+  #ctrl button:hover { background: #1d2a38; color: #dbe6f0; }
+  #ctrl button:active { background: #26333f; }
+  #ctrl .k {
+    display: inline-block;
+    padding: 1px 6px;
+    background: #16202c;
+    border: 1px solid #2b3846;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #6f8aa3;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="ctrl">
+  <button data-act="prev"><span class="k">←</span> 上一个</button>
+  <button data-act="next">下一个 <span class="k">→</span></button>
+  <button data-act="pause" id="btnPause"><span class="k">空格</span> 暂停</button>
+  <button data-act="reset"><span class="k">R</span> 重开</button>
+</div>
+
+<script type="module">
+import {
+  addSquad, computeCenters, computeSquadTargets
+} from "./js/squad-layer.js";
+import { stepUnits } from "./js/group-layer.js";
+import { stepWeapons } from "./js/weapon-system.js";
+import {
+  applyDamage, stepRegen, stepChargers, initCombat
+} from "./js/defense-system.js";
+import { drawUnits, drawProjectiles, drawUnitGlyph } from "./js/render-units.js";
+import { drawFx } from "./js/render-fx.js";
+import {
+  TEMPLATES, LOOSE_SQUAD, templateDef, templateHue, swatchColor
+} from "./js/templates.js";
+
+(() => {
+  "use strict";
+
+  const cvs = document.getElementById("c");
+  const ctx = cvs.getContext("2d");
+  let W = 0, H = 0;
+
+  const S = {
+    drag: 0.30, stallSpeed: 60, stallAccel: 100, arriveR: 46,
+    shieldHp: 80, chargerRange: 140, chargerCd: 2.5,
+    energyMax: 100, energyCost: 25, energyRegen: 8,
+    paused: false
+  };
+
+  const FIXED = 1 / 60;
+  const RED_COUNT = 15;      // 红方固定 15 个未编队单位
+  const MAX_ROUND = 10;      // 单场战斗时间上限，超时强制进入结算
+  const INTRO_HOLD = 0.5;    // 开场：列阵定格 1 秒（不移动、不开火）
+  const RESULT_HOLD = 0.5;   // 打完停多久再进下一场（原 2.8 + 结尾 1 秒）
+  const HEAD_H = 172;        // 顶部说明卡高度
+  const SPAWN = 120;         // 双方出生点离中心的距离（间距 240，在各自索敌范围内）
+  const ZOOM = 1.7;          // 画面放大，单位看得清
+  const SIDE_W = 360;        // 右侧规则栏宽度
+
+  // ---------- 状态 ----------
+  let squads = [];
+  let units = [];
+  let projectiles = [];
+  let fx = [];
+  const hits = [];
+  let combatT = 0;
+
+  let round = 0;
+  let phase = "intro";        // intro | fight | result
+  let introT = 0;
+  let resultT = 0;
+  let roundT = 0;
+  let result = null;          // { winner, blueLeft, redLeft, timeout }
+  let blueStart = 0, redStart = 0;
+  let arenaCx = 0, arenaCy = 0;
+
+  // ---------- 布局 ----------
+  function layout() {
+    W = window.innerWidth;
+    H = window.innerHeight;
+    cvs.width = W;
+    cvs.height = H;
+    cvs.style.width = W + "px";
+    cvs.style.height = H + "px";
+    arenaCx = (W - SIDE_W) / 2;
+    arenaCy = HEAD_H + (H - HEAD_H) / 2;
+    buildRules();
+  }
+  window.addEventListener("resize", () => { layout(); });
+
+  // ---------- 造一队 ----------
+  function spawnCluster(squad, faction, cx, cy, count, chargerP) {
+    const sq = squads[squad];
+    for (let k = 0; k < count; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.sqrt(Math.random()) * 34;
+      const u = {
+        x: cx + Math.cos(a) * r,
+        y: cy + Math.sin(a) * r,
+        vx: 0, vy: 0,
+        squad, alpha: 0, cAll: 0
+      };
+      units.push(u);
+      initCombat(u, sq, Math.random() < chargerP ? 0 : 99);
+    }
+    sq.cn += count;
+  }
+
+  function startRound(i) {
+    squads = [];
+    units = [];
+    projectiles = [];
+    fx = [];
+    hits.length = 0;
+    combatT = 0;
+    roundT = 0;
+    phase = "intro";
+    introT = INTRO_HOLD;
+    result = null;
+
+    const tpl = TEMPLATES[i];
+    const cx = arenaCx;
+    const cy = arenaCy;
+    const gap = SPAWN;        // 双方初始间距 —— 都在各自索敌范围内
+
+    // 蓝方：参演战斗群
+    const blueId = addSquad(squads, templateDef(tpl, 0), 0);
+    const blueN = Math.max(1, Math.floor(squads[blueId].p.members));
+    const blueChargerP = (squads[blueId].p.chargers || 0) / Math.max(1, squads[blueId].p.members);
+    spawnCluster(blueId, 0, cx - gap, cy, blueN, blueChargerP);
+
+    // 红方：固定 15 个未编队单位
+    const redId = addSquad(squads, {
+      key: "loose", name: "散兵",
+      hue: templateHue(LOOSE_SQUAD, 1),
+      sat: 38, flatLum: 38,
+      loose: true,
+      weapon: LOOSE_SQUAD.weapon,
+      p: LOOSE_SQUAD.p
+    }, 1);
+    spawnCluster(redId, 1, cx + gap, cy, RED_COUNT, 0.3);
+
+    blueStart = units.length - RED_COUNT;
+    redStart = RED_COUNT;
+  }
+
+  function nextRound() {
+    round = (round + 1) % TEMPLATES.length;
+    startRound(round);
+  }
+
+  // ---------- 物理 / 战斗 ----------
+  /** 屏幕可见区域换算回世界坐标（画面放大后，物理边界不能再用 W/H） */
+  function viewRect() {
+    const halfW = (arenaCx) / ZOOM - 34;
+    const halfH = ((H - HEAD_H) / 2) / ZOOM - 34;
+    return {
+      l: arenaCx - halfW, r: arenaCx + halfW,
+      t: arenaCy - halfH, b: arenaCy + halfH
+    };
+  }
+
+  function physics(dt) {
+    computeCenters(units, squads);
+    computeSquadTargets(units, squads);
+    stepUnits(units, squads, S, dt, W, H);
+
+    // 关在"看得见的那块"里，不允许飞出屏幕
+    const v = viewRect();
+    for (const u of units) {
+      if (u.x < v.l) { u.x = v.l; if (u.vx < 0) u.vx = 0; }
+      else if (u.x > v.r) { u.x = v.r; if (u.vx > 0) u.vx = 0; }
+
+      if (u.y < v.t) { u.y = v.t; if (u.vy < 0) u.vy = 0; }
+      else if (u.y > v.b) { u.y = v.b; if (u.vy > 0) u.vy = 0; }
+    }
+  }
+
+  function combat(dt) {
+    combatT += dt;
+    stepRegen(units, dt);
+    stepChargers(units, squads, S, dt, fx);
+
+    hits.length = 0;
+    stepWeapons(units, squads, projectiles, dt, hits, combatT, fx);
+
+    if (hits.length) {
+      let dead = false;
+      for (const h of hits) {
+        if (applyDamage(h.t, h.dmg, h.pierce)) dead = true;
+      }
+      if (dead) {
+        let w = 0;
+        for (let i = 0; i < units.length; i++) {
+          if (units[i].hp > 0) units[w++] = units[i];
+        }
+        units.length = w;
+      }
+    }
+  }
+
+  function stepFx(dt) {
+    for (let i = fx.length - 1; i >= 0; i--) {
+      const e = fx[i];
+      if (e.delay > 0) { e.delay -= dt; continue; }
+      e.life -= dt;
+      if (e.life <= 0) fx.splice(i, 1);
+    }
+  }
+
+  function countSide(f) {
+    let n = 0;
+    for (const u of units) if (squads[u.squad].faction === f) n++;
+    return n;
+  }
+
+  function checkRound(dt) {
+    if (phase === "result") {
+      resultT -= dt;
+      if (resultT <= 0) nextRound();
+      return;
+    }
+
+    if (phase === "intro") {
+      introT -= dt;
+      if (introT <= 0) { phase = "fight"; roundT = 0; }
+      return;
+    }
+
+    roundT += dt;
+    const b = countSide(0), r = countSide(1);
+    if (b === 0 || r === 0 || roundT > MAX_ROUND) {
+      phase = "result";
+      resultT = RESULT_HOLD;
+      result = {
+        winner: b > 0 ? 0 : (r > 0 ? 1 : -1),
+        blueLeft: b,
+        redLeft: r,
+        timeout: roundT > MAX_ROUND
+      };
+    }
+  }
+
+  // ---------- 绘制 ----------
+  function hexToHsla(color, a) {
+    const m = color.match(/hsl\(([\d.]+),([\d.]+)%,([\d.]+)%\)/);
+    if (!m) return color;
+    return "hsla(" + m[1] + "," + m[2] + "%," + m[3] + "%," + a + ")";
+  }
+
+  function drawMark(cx, cy, color) {
+    drawUnitGlyph(ctx, cx + 8, cy, 0, 1, color);
+    drawUnitGlyph(ctx, cx - 6, cy - 7, 0, 1, color);
+    drawUnitGlyph(ctx, cx - 6, cy + 7, 0, 1, color);
+  }
+
+  function drawHeader() {
+    const tpl = TEMPLATES[round];
+    const hueB = tpl.hue[0];
+
+    // 背板
+    ctx.fillStyle = "rgba(10,15,22,.92)";
+    ctx.fillRect(0, 0, W - SIDE_W, HEAD_H);
+    ctx.strokeStyle = "rgba(80,120,160,.22)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, HEAD_H - 0.5);
+    ctx.lineTo(W - SIDE_W, HEAD_H - 0.5);
+    ctx.stroke();
+
+    // 左侧：环节说明 + 序号
+    ctx.save();
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+
+    ctx.font = "600 21px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+    ctx.fillStyle = "#4a86b8";
+    ctx.fillText("单位介绍环节", 34, 30);
+
+    ctx.font = "600 30px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+    ctx.fillStyle = "#243342";
+    ctx.fillText(String(round + 1).padStart(2, "0"), 34, 72);
+
+    ctx.font = "500 16px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+    ctx.fillStyle = "#4a5d70";
+    ctx.fillText("/ " + TEMPLATES.length, 34, 106);
+
+    // 战斗群名 + 三箭头标记
+    const nx = 172;
+    drawMark(nx + 16, 72, swatchColor(hueB));
+
+    ctx.font = "600 38px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+    ctx.fillStyle = "#e8f2fb";
+    ctx.fillText(tpl.name, nx + 48, 72);
+
+    // 三栏信息：标签在上、数值在下，数值独占整栏宽度，字号可以开得更大
+    const rows = [
+      ["武器", tpl.info.weapon],
+      ["防御", tpl.info.defense],
+      ["阵型", tpl.info.formation]
+    ];
+    const colW = (W - SIDE_W - nx - 24) / 3;
+    let fs = 26;
+    let need = 0;
+    while (fs > 12) {
+      ctx.font = "500 " + fs + "px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+      need = 0;
+      for (const r of rows) need = Math.max(need, ctx.measureText(r[1]).width);
+      if (need <= colW - 16) break;
+      fs -= 1;
+    }
+
+    ctx.font = "600 15px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+    for (let i = 0; i < rows.length; i++) {
+      ctx.fillStyle = "#405060";
+      ctx.fillText(rows[i][0], nx + colW * i, 110);
+    }
+
+    ctx.font = "500 " + fs + "px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+    for (let i = 0; i < rows.length; i++) {
+      ctx.fillStyle = "#a8bccf";
+      ctx.fillText(rows[i][1], nx + colW * i, 144);
+    }
+    ctx.restore();
+
+    // 进度条
+    const pw = W - SIDE_W - 68;
+    const prog = (round + (phase === "result" ? 1 : 0)) / TEMPLATES.length;
+    ctx.fillStyle = "rgba(120,160,200,.10)";
+    ctx.fillRect(34, HEAD_H - 8, pw, 3);
+    ctx.fillStyle = "rgba(120,180,230,.55)";
+    ctx.fillRect(34, HEAD_H - 8, pw * prog, 3);
+  }
+
+  function drawSideLabels() {
+    const zx = (dx) => arenaCx + dx * ZOOM;
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "500 15px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+
+    ctx.fillStyle = "rgba(120,170,220,.30)";
+    ctx.fillText("蓝方 · " + TEMPLATES[round].name, zx(-SPAWN), arenaCy - 120);
+    ctx.fillStyle = "rgba(220,140,120,.30)";
+    ctx.fillText("红方 · " + RED_COUNT + " 未编队", zx(SPAWN), arenaCy - 120);
+    ctx.restore();
+  }
+
+  function drawStatus() {
+    const b = countSide(0), r = countSide(1);
+    const y = H - 30;
+
+    ctx.save();
+    ctx.textBaseline = "middle";
+
+    ctx.textAlign = "left";
+    ctx.font = "600 17px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+    ctx.fillStyle = "#5fa8e8";
+    ctx.fillText("蓝方", 34, y);
+    ctx.font = "500 16px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+    ctx.fillStyle = "#8ba4bb";
+    ctx.fillText(b + " / " + blueStart + (phase === "result" ? " 存活" : ""), 86, y);
+
+    ctx.textAlign = "right";
+    ctx.font = "600 17px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+    ctx.fillStyle = "#e8614f";
+    ctx.fillText("红方", W - SIDE_W - 34, y);
+    ctx.font = "500 16px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+    ctx.fillStyle = "#8ba4bb";
+    ctx.fillText(r + " / " + redStart + (phase === "result" ? " 存活" : ""), W - SIDE_W - 86, y);
+
+    ctx.textAlign = "center";
+    ctx.font = "500 14px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+    ctx.fillStyle = phase === "intro" ? "#7d93a8" : "#3f4f60";
+    ctx.fillText(
+      phase === "intro" ? "列阵准备…"
+        : phase === "result" ? "下一场准备中…"
+        : "交战中  " + Math.floor(roundT) + "s / " + MAX_ROUND + "s",
+      arenaCx, y
+    );
+
+    // 结果横幅
+    if (phase === "result" && result) {
+      const won = result.winner === 0;
+      const txt = result.timeout
+        ? "限时结束"
+        : won ? TEMPLATES[round].name + " 胜" : "未编队 顶住了";
+
+      ctx.font = "600 34px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+      ctx.fillStyle = result.timeout ? "rgba(200,190,120,.85)"
+        : won ? "rgba(95,168,232,.92)" : "rgba(232,97,79,.92)";
+      ctx.fillText(txt, arenaCx, arenaCy - 220);
+
+      ctx.font = "500 17px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+      ctx.fillStyle = "rgba(150,175,200,.65)";
+      ctx.fillText(
+        "蓝方剩余 " + result.blueLeft + "    ·    红方剩余 " + result.redLeft,
+        arenaCx, arenaCy - 180
+      );
+    }
+    ctx.restore();
+  }
+
+  // ---------- 右侧规则栏 ----------
+  const RULES = [
+    { h: "落球出场", items: [
+      "发球器左右巡航，6~11 秒落一球",
+      "球落入底部槽位，给对应战斗群补兵"
+    ]},
+    { h: "两方基地", items: [
+      "各 5000 血，每 0.2~0.3 秒产 1 散兵",
+      "散兵血薄，自动扑向敌方基地"
+    ]},
+    { h: "固定编制", items: [
+      "每方 5 战斗群 + 1 支散兵",
+      "同模板一律并入同一小队"
+    ]},
+    { h: "自动交战", items: [
+      "进入索敌范围即开火，无需操作"
+    ]},
+    { h: "人口与追赶", items: [
+      "每方上限 200",
+      "落后 100 人口时落球 ×3"
+    ]},
+    { h: "胜负", items: [
+      "摧毁对方基地即获胜",
+      "空格暂停 · R 重开"
+    ]}
+  ];
+
+  let ruleLayout = null;
+
+  function wrapText(text, maxW) {
+    const out = [];
+    let cur = "";
+    for (const ch of String(text)) {
+      const t = cur + ch;
+      if (cur && ctx.measureText(t).width > maxW) { out.push(cur); cur = ch; }
+      else cur = t;
+    }
+    if (cur) out.push(cur);
+    return out;
+  }
+
+  /** 从大到小试字号，选第一个能塞进整栏高度的 */
+  function buildRules() {
+    const avail = SIDE_W - 60;
+
+    for (let fs = 21; fs >= 12; fs--) {
+      ctx.save();
+      ctx.font = "500 " + fs + "px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+      const secs = RULES.map(s => ({
+        h: s.h,
+        lines: s.items.map(t => wrapText("· " + t, avail))
+      }));
+      ctx.restore();
+
+      const lineH = Math.round(fs * 1.45);
+      const headH = Math.round(fs * 1.35) + 10;
+      const secGap = 16;
+
+      let total = 124;                       // 标题区
+      for (const s of secs) {
+        total += headH;
+        for (const l of s.lines) total += l.length * lineH;
+        total += secGap;
+      }
+
+      if (total <= H - 130) {               // 底部留出控制按钮的位置
+        ruleLayout = { fs, lineH, headH, secGap, secs };
+        return;
+      }
+    }
+    ruleLayout = null;
+  }
+
+  function drawSidebar() {
+    const x0 = W - SIDE_W;
+
+    ctx.save();
+    ctx.fillStyle = "rgba(10,15,22,.95)";
+    ctx.fillRect(x0, 0, SIDE_W, H);
+    ctx.strokeStyle = "rgba(80,120,160,.22)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x0 + 0.5, 0);
+    ctx.lineTo(x0 + 0.5, H);
+    ctx.stroke();
+
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+
+    // 标题
+    ctx.font = "600 26px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+    ctx.fillStyle = "#dbe6f0";
+    ctx.fillText("小球舰队大战", x0 + 28, 44);
+
+    ctx.font = "500 15px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+    ctx.fillStyle = "#3f6f96";
+    ctx.fillText("游 戏 规 则", x0 + 28, 76);
+
+    ctx.strokeStyle = "rgba(80,120,160,.18)";
+    ctx.beginPath();
+    ctx.moveTo(x0 + 28, 96);
+    ctx.lineTo(x0 + SIDE_W - 28, 96);
+    ctx.stroke();
+
+    if (!ruleLayout) { ctx.restore(); return; }
+
+    const L = ruleLayout;
+    let y = 124;
+    for (const sec of L.secs) {
+      ctx.font = "600 " + Math.round(L.fs * 1.15) + "px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+      ctx.fillStyle = "#7fa8c8";
+      ctx.fillText(sec.h, x0 + 28, y);
+      y += L.headH;
+
+      ctx.font = "500 " + L.fs + "px 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif";
+      ctx.fillStyle = "#93a9bf";
+      for (const line of sec.lines) {
+        for (const ln of line) {
+          ctx.fillText(ln, x0 + 28, y);
+          y += L.lineH;
+        }
+      }
+      y += L.secGap;
+    }
+    ctx.restore();
+  }
+
+  function render() {
+    ctx.fillStyle = "#07090d";
+    ctx.fillRect(0, 0, W, H);
+
+    drawHeader();
+    drawSideLabels();
+
+    // 战场整体放大，并裁在说明卡以下、侧栏以左
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, HEAD_H, W - SIDE_W, H - HEAD_H);
+    ctx.clip();
+    ctx.translate(arenaCx, arenaCy);
+    ctx.scale(ZOOM, ZOOM);
+    ctx.translate(-arenaCx, -arenaCy);
+
+    drawUnits(ctx, units, squads);
+    drawFx(ctx, fx);
+    drawProjectiles(ctx, projectiles);
+
+    ctx.restore();
+
+    drawSidebar();
+    drawStatus();
+  }
+
+  // ---------- 控制 ----------
+  const btnPause = document.getElementById("btnPause");
+  const ctrlEl = document.getElementById("ctrl");
+
+  function setPaused(v) {
+    S.paused = v;
+    btnPause.innerHTML = '<span class="k">空格</span> ' + (v ? "继续" : "暂停");
+  }
+
+  function goPrev() {
+    round = (round - 1 + TEMPLATES.length) % TEMPLATES.length;
+    startRound(round);
+  }
+
+  function restartAll() {
+    round = 0;
+    startRound(0);
+  }
+
+  ctrlEl.addEventListener("click", e => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    const act = btn.dataset.act;
+    if (act === "prev") goPrev();
+    else if (act === "next") nextRound();
+    else if (act === "pause") setPaused(!S.paused);
+    else if (act === "reset") restartAll();
+    btn.blur();               // 避免空格再次触发这个按钮
+  });
+
+  window.addEventListener("keydown", e => {
+    if (e.key === " ") { setPaused(!S.paused); e.preventDefault(); }
+    else if (e.key === "ArrowRight") { nextRound(); e.preventDefault(); }
+    else if (e.key === "ArrowLeft") { goPrev(); e.preventDefault(); }
+    else if (e.key.toLowerCase() === "r") { restartAll(); e.preventDefault(); }
+  });
+
+  // ---------- 主循环 ----------
+  layout();
+  startRound(0);
+
+  let last = performance.now();
+  let acc = 0;
+
+  function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.1);
+    last = now;
+
+    if (!S.paused) {
+      acc += dt;
+      let guard = 0;
+      while (acc >= FIXED && guard++ < 5) {
+        if (phase === "fight") {
+          physics(FIXED);
+          combat(FIXED);
+        }
+        checkRound(FIXED);
+        acc -= FIXED;
+      }
+      if (acc > FIXED) acc = 0;
+      stepFx(dt);
+    }
+
+    render();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // 调试钩子
+  window.__U = () => units;
+  window.__SQ = () => squads;
+  window.__ROUND = () => ({ round, phase, roundT, result });
+  window.__S = S;
+})();
+</script>
+</body>
+</html>

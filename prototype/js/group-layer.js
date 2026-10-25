@@ -91,9 +91,10 @@ export function stepUnits(units, squads, G, dt, W, H) {
       // 亲和判定（精确定义）：
       //  · 未编队单位 → 对「同阵营所有单位」计算凝聚与对齐（包括其他散兵）
       //  · 已入队单位 → 仅对「自己小队内」的单位计算凝聚与对齐
-      // 这个判定是**不对称的**：散兵会被正规队吸引，正规队不会被散兵拖慢。
+      // 障碍物（基地这类静止结构）只参与分离，不算亲和对象，
+      // 否则散兵会被吸到基地边缘绕圈。
       const same = sq.loose
-        ? (oFaction === myFaction)
+        ? (oFaction === myFaction && !o.obstacle)
         : (mine === o.squad);
 
       // ---- 分离：全局，不分小队、不分阵营 ----
