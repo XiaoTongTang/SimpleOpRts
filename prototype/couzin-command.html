@@ -163,7 +163,8 @@
       <div class="chip" data-i="7" style="border-left-color:hsl(55,72%,55%)">H<span id="sqN7">0</span></div>
     </div>
     <div class="chips" style="margin-top:3px">
-      <div class="chip un" data-i="-1">未编队<span id="sqNu">0</span></div>
+      <div class="chip un" data-i="8" style="border-left-color:hsl(210,28%,52%)">未编队·蓝<span id="sqN8">0</span></div>
+      <div class="chip un" data-i="9" style="border-left-color:hsl(8,30%,52%)">未编队·红<span id="sqN9">0</span></div>
     </div>
   </div>
 
@@ -305,24 +306,33 @@
 
   // ---------- 两个阵营 × 4 个小队 ----------
   const SQUAD_DEF = [
-    { key: "A", faction: 0, hue: 205 },
-    { key: "B", faction: 0, hue: 178 },
-    { key: "C", faction: 0, hue: 232 },
-    { key: "D", faction: 0, hue: 158 },
-    { key: "E", faction: 1, hue: 5 },
-    { key: "F", faction: 1, hue: 30 },
-    { key: "G", faction: 1, hue: 345 },
-    { key: "H", faction: 1, hue: 55 }
+    { key: "A", faction: 0, hue: 205, sat: 82 },
+    { key: "B", faction: 0, hue: 178, sat: 82 },
+    { key: "C", faction: 0, hue: 232, sat: 82 },
+    { key: "D", faction: 0, hue: 158, sat: 82 },
+    { key: "E", faction: 1, hue: 5, sat: 82 },
+    { key: "F", faction: 1, hue: 30, sat: 82 },
+    { key: "G", faction: 1, hue: 345, sat: 82 },
+    { key: "H", faction: 1, hue: 55, sat: 82 },
+    // 8 / 9 = 双方各自的"未编队"，行为上仍是小队（有阵营、可调参），
+    // 但寻敌不走小队统一目标，而是保持逐单位的局部计算
+    { key: "散", faction: 0, hue: 210, sat: 26, loose: true },
+    { key: "散", faction: 1, hue: 8, sat: 28, loose: true }
   ];
   const FACTION_COLOR = ["#4fa3e8", "#e8614f"];
 
   function makeSquads() {
-    return SQUAD_DEF.map((d, i) => ({
-      id: i, key: d.key, faction: d.faction, hue: d.hue,
-      p: makeParams(),
-      goal: null,
-      cx: 0, cy: 0, cn: 0
-    }));
+    return SQUAD_DEF.map((d, i) => {
+      const p = makeParams();
+      if (d.loose) p.members = 6;
+      return {
+        id: i, key: d.key, faction: d.faction, hue: d.hue,
+        sat: d.sat || 82, loose: !!d.loose,
+        p,
+        goal: null, target: null,
+        cx: 0, cy: 0, cn: 0
+      };
+    });
   }
 
   let squads = makeSquads();
@@ -357,15 +367,30 @@
 
     const cx = W * 0.5, cy = H * 0.5;
     const R = Math.min(W, H) * 0.26;
-    const STRAY = 12;
 
-    // 蓝方在左，红方在右，各 4 队纵向排开；每队人数由各队 members 决定
-    for (let s = 0; s < 8; s++) {
-      const f = s < 4 ? 0 : 1;
+    for (let s = 0; s < squads.length; s++) {
+      const sq = squads[s];
+      const n = Math.max(0, Math.floor(sq.p.members));
+      if (sq.loose) {
+        // 未编队：随机散布
+        for (let k = 0; k < n; k++) {
+          const a = Math.random() * Math.PI * 2;
+          const r = Math.sqrt(Math.random()) * Math.min(W, H) * 0.42;
+          const ang = Math.random() * Math.PI * 2;
+          units.push({
+            x: cx + Math.cos(a) * r,
+            y: cy + Math.sin(a) * r,
+            vx: Math.cos(ang) * SPD * 0.6,
+            vy: Math.sin(ang) * SPD * 0.6,
+            squad: s, alpha: 0, cAll: 0
+          });
+        }
+        continue;
+      }
+      // 正规小队：蓝方在左，红方在右，各 4 队纵向排开
       const row = s % 4;
-      const bx = f === 0 ? W * 0.24 : W * 0.76;
+      const bx = sq.faction === 0 ? W * 0.24 : W * 0.76;
       const by = H * (0.16 + row * 0.225);
-      const n = Math.max(0, Math.floor(squads[s].p.members));
       for (let k = 0; k < n; k++) {
         const a = Math.random() * Math.PI * 2;
         const r = Math.sqrt(Math.random()) * R * 0.42;
@@ -375,26 +400,9 @@
           y: by + Math.sin(a) * r,
           vx: Math.cos(ang) * SPD * 0.6,
           vy: Math.sin(ang) * SPD * 0.6,
-          squad: s,
-          alpha: 0,
-          cAll: 0
+          squad: s, alpha: 0, cAll: 0
         });
       }
-    }
-    // 掉队散兵：随机散布，会被附近任意队伍吸引
-    for (let k = 0; k < STRAY; k++) {
-      const a = Math.random() * Math.PI * 2;
-      const r = Math.sqrt(Math.random()) * Math.min(W, H) * 0.42;
-      const ang = Math.random() * Math.PI * 2;
-      units.push({
-        x: cx + Math.cos(a) * r,
-        y: cy + Math.sin(a) * r,
-        vx: Math.cos(ang) * SPD * 0.6,
-        vy: Math.sin(ang) * SPD * 0.6,
-        squad: -1,
-        alpha: 0,
-        cAll: 0
-      });
     }
   }
 
@@ -442,6 +450,30 @@
     computeCenters();
   }
 
+  // ---------- 小队级统一寻敌目标 ----------
+  // 正规小队：对"小队重心 r₅ 内"的敌人做 1/d² 加权重心，全队共享这一个点。
+  // 未编队小队（loose）：不算目标，保持逐单位的局部寻敌。
+  function computeSquadTargets() {
+    for (const sq of squads) {
+      sq.target = null;
+      if (sq.loose || sq.cn === 0) continue;
+      const r5 = sq.p.r5;
+      const r52 = r5 * r5;
+      let tx = 0, ty = 0, tw = 0;
+      for (const e of units) {
+        const esq = squads[e.squad];
+        if (!esq || esq.faction === sq.faction) continue;
+        const dx = e.x - sq.cx, dy = e.y - sq.cy;
+        const d2 = dx * dx + dy * dy;
+        if (d2 > r52) continue;
+        const d = Math.sqrt(d2);
+        const w = 1 / ((d + 30) * (d + 30));
+        tx += e.x * w; ty += e.y * w; tw += w;
+      }
+      if (tw > 0) sq.target = { x: tx / tw, y: ty / tw };
+    }
+  }
+
   // ---------- 物理 ----------
   let statAlpha = 0, statCmd = 0, statNb = 0, statSpd = 0, statCombat = 0;
 
@@ -449,6 +481,7 @@
     const n = units.length;
 
     computeCenters();
+    computeSquadTargets();
 
     let sumAlpha = 0, sumCmd = 0, sumNb = 0, sumSpd = 0, sumCombat = 0;
 
@@ -485,8 +518,11 @@
         const oFaction = oSq ? oSq.faction : -1;
         const enemy = (myFaction >= 0 && oFaction >= 0 && oFaction !== myFaction);
 
-        // 同队判定：已编队只认同队；散兵被附近任何有编队的单位吸引
-        const same = (mine >= 0 && mine === o.squad) || (mine < 0 && o.squad >= 0);
+        // 亲和判定：
+        //  · 正规小队单位 → 只认同一个小队
+        //  · 未编队单位   → 认同阵营内所有单位（会被友军队伍自然吸走，
+        //                   但反过来不成立：队伍不会被散兵拖慢）
+        const same = (mine === o.squad) || (sq.loose && oFaction === myFaction);
 
         // ---- 分离：全局，不分小队、不分阵营 ----
         if (d < rRep) {
@@ -502,8 +538,8 @@
             const w = t * t;
             if (w > thMax) thMax = w;
             thx -= (dx / d) * w; thy -= (dy / d) * w;
-          } else if (d < r5) {
-            // 寻敌区：r4 处归零，r5 处满幅
+          } else if (d < r5 && sq.loose) {
+            // 局部寻敌：只有「未编队」用这条路径
             const w = smoothstep(r4, r5, d);
             if (w > skMax) skMax = w;
             skx += (dx / d) * w; sky += (dy / d) * w;
@@ -527,6 +563,18 @@
 
       u.cAll = cAll;
       sumNb += cAll;
+
+      // ---- 统一寻敌：正规小队全队朝同一个目标点，避免各自为战拉散队形 ----
+      if (sq && !sq.loose && sq.target) {
+        const tdx = sq.target.x - u.x, tdy = sq.target.y - u.y;
+        const dT = Math.hypot(tdx, tdy) || 1e-6;
+        const w = smoothstep(P.r4, P.r5, dT);   // 远处满幅，接近目标时衰减
+        if (w > 1e-6) {
+          skx = (tdx / dT) * w;
+          sky = (tdy / dT) * w;
+          skMax = w;
+        }
+      }
 
       // ---- 命令通道：只吃本小队的控制点 ----
       let cdx = 0, cdy = 0, cmdMag = 0;
@@ -644,9 +692,10 @@
   // ---------- 渲染 ----------
   // 色相 = 小队，亮度 = 服从度 α
   function unitColor(u) {
+    const sq = squads[u.squad];
     const l = 32 + u.alpha * 28;
-    if (u.squad < 0) return "hsl(215,18%," + l.toFixed(1) + "%)";
-    return "hsl(" + squads[u.squad].hue + ",82%," + l.toFixed(1) + "%)";
+    if (!sq) return "hsl(215,18%," + l.toFixed(1) + "%)";
+    return "hsl(" + sq.hue + "," + sq.sat + "%," + l.toFixed(1) + "%)";
   }
 
   function findFocus() {
@@ -786,8 +835,6 @@
     el.combat.textContent = Math.round(statCombat) + "%";
 
     // 小队人数与指令标记
-    let un = 0;
-    for (const u of units) if (u.squad < 0) un++;
     for (let i = 0; i < squads.length; i++) {
       const c = chipEls[i];
       if (!c) continue;
@@ -795,8 +842,6 @@
       if (nEl) nEl.textContent = squads[i].cn;
       c.dataset.ord = squads[i].goal ? "1" : "0";
     }
-    const eu = document.getElementById("sqNu");
-    if (eu) eu.textContent = un;
   }
 
   // ---------- 输入 ----------
