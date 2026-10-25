@@ -324,16 +324,22 @@ import { stepUnits, SPD } from "./js/group-layer.js";
       const n = Math.max(0, Math.floor(sq.p.members));
 
       if (sq.loose) {
-        // 未编队：随机散布，靠同阵营的凝聚力自然靠拢
+        // 未编队：散布在「己方正规队」周围，而不是地图中央。
+        // 原因是亲和力规则本身：散兵认同阵营内所有单位，若把它们丢在
+        // 没有正规队的空白区域，它们能看到的同阵营单位就只有彼此，
+        // 于是会先互相抱团、形成第三支小队。放到己方部队附近即可避免。
+        const allies = units.filter(u => {
+          const us = squads[u.squad];
+          return us && !us.loose && us.faction === sq.faction;
+        });
         for (let k = 0; k < n; k++) {
-          const a = Math.random() * Math.PI * 2;
-          const r = Math.sqrt(Math.random()) * Math.min(W, H) * 0.42;
+          const host = allies.length ? allies[(Math.random() * allies.length) | 0] : { x: cx, y: cy };
           const ang = Math.random() * Math.PI * 2;
+          const rr = 60 + Math.random() * 160;      // 60~220px，分布在部队外围
           units.push({
-            x: cx + Math.cos(a) * r,
-            y: cy + Math.sin(a) * r,
-            vx: Math.cos(ang) * SPD * 0.6,
-            vy: Math.sin(ang) * SPD * 0.6,
+            x: host.x + Math.cos(ang) * rr,
+            y: host.y + Math.sin(ang) * rr,
+            vx: 0, vy: 0,
             squad: s, alpha: 0, cAll: 0
           });
         }

@@ -88,11 +88,13 @@ export function stepUnits(units, squads, G, dt, W, H) {
       const oFaction = oSq ? oSq.faction : -1;
       const enemy = (oFaction >= 0 && oFaction !== myFaction);
 
-      // 亲和判定：
-      //  · 正规小队单位 → 只认同一个小队
-      //  · 未编队单位   → 认同阵营内所有单位（会被友军队伍吸走，
-      //                   但反过来不成立：队伍不会被散兵拖慢）
-      const same = (mine === o.squad) || (sq.loose && oFaction === myFaction);
+      // 亲和判定（精确定义）：
+      //  · 未编队单位 → 对「同阵营所有单位」计算凝聚与对齐（包括其他散兵）
+      //  · 已入队单位 → 仅对「自己小队内」的单位计算凝聚与对齐
+      // 这个判定是**不对称的**：散兵会被正规队吸引，正规队不会被散兵拖慢。
+      const same = sq.loose
+        ? (oFaction === myFaction)
+        : (mine === o.squad);
 
       // ---- 分离：全局，不分小队、不分阵营 ----
       if (d < rRep) {

@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "design/己方与敌方Couzin算法设计.md",
+                "file": "design/攻击与防御机制.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "己方与敌方Couzin算法设计"
+              "title": "攻击与防御机制"
             }
           }
         ]
@@ -99,7 +99,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "design/己方与敌方Couzin算法设计.md",
+                "file": "design/攻击与防御机制.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -118,7 +118,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "design/己方与敌方Couzin算法设计.md",
+                "file": "design/攻击与防御机制.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
@@ -161,7 +161,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "design/己方与敌方Couzin算法设计.md",
+                "file": "design/攻击与防御机制.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -190,18 +190,20 @@
   },
   "active": "28972d5c9316b4c4",
   "lastOpenFiles": [
+    "design/分层架构与每层职责.md",
+    "design/己方与敌方Couzin算法设计.md",
+    "design/未编队单位与编队单位机制差异.md",
+    "design/攻击与防御机制.md",
+    "design/squad-mechanics-couzin.md",
+    "design/softened-couzin-primer.md",
+    "design/flocking-rts-unit-control.md",
+    "design/behavior-algorithms.md",
     "prototype/serve.mjs",
     "prototype/js/group-layer.js",
     "prototype/js/squad-layer.js",
     "prototype/js",
-    "design/分层架构与每层职责.md",
     "prototype/couzin-command.html~RF788bb5f.TMP",
     "prototype/couzin-command.html~RF7512285.TMP",
-    "design/己方与敌方Couzin算法设计.md",
-    "design/softened-couzin-primer.md",
-    "design/flocking-rts-unit-control.md",
-    "design/squad-mechanics-couzin.md",
-    "design/behavior-algorithms.md",
     "design/control-architecture.md",
     "prototype/couzin-command.html",
     "prototype/逐页大纲设计.md",
@@ -214,7 +216,6 @@
     "assets/cover-boy.png",
     "assets",
     "dsh-image-gen/image-4739f4e0.png",
-    "dsh-image-gen/image-a2f3eb6b.png",
-    "dsh-image-gen"
+    "dsh-image-gen/image-a2f3eb6b.png"
   ]
 }
