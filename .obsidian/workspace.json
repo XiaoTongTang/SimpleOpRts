@@ -190,6 +190,10 @@
   },
   "active": "28972d5c9316b4c4",
   "lastOpenFiles": [
+    "prototype/serve.mjs",
+    "prototype/js/group-layer.js",
+    "prototype/js/squad-layer.js",
+    "prototype/js",
     "design/分层架构与每层职责.md",
     "prototype/couzin-command.html~RF788bb5f.TMP",
     "prototype/couzin-command.html~RF7512285.TMP",
@@ -211,9 +215,6 @@
     "assets",
     "dsh-image-gen/image-4739f4e0.png",
     "dsh-image-gen/image-a2f3eb6b.png",
-    "dsh-image-gen",
-    "jingcai-zaogao-kejian.html",
-    "dsh-harness-intro.html",
-    "prototype/couzin-command.html~RF3ec469a.TMP"
+    "dsh-image-gen"
   ]
 }
