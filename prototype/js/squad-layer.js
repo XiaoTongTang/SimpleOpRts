@@ -16,12 +16,15 @@
 // [key, 显示小数位, 默认值]
 // ---------------------------------------------------------------
 export const P_DEFS = [
+  // —— 移动 / 阵型（只被 group-layer 读取）——
   ["wSep", 2, 1.40], ["wAli", 2, 0.85], ["wCoh", 2, 0.75],
   ["omega", 2, 1.10], ["wCmd", 2, 1.20],
   ["wThreat", 2, 1.50], ["wSeek", 2, 1.20],
   ["r4", 0, 90], ["r5", 0, 300],
   ["rRep", 0, 24], ["rOri", 0, 52], ["rAtt", 0, 96],
-  ["members", 0, 24]
+  ["members", 0, 24],
+  // —— 战斗（只被 defense-system 读取，与移动完全解耦）——
+  ["hp", 0, 100], ["regen", 2, 2.00], ["chargers", 0, 2]
 ];
 
 export function makeParams() {
@@ -37,10 +40,18 @@ export const DEFAULT_P = makeParams();
 // 全局参数（所有小队共用，不随小队变化）
 // ---------------------------------------------------------------
 export const GLOBAL_DEFS = [
+  // 移动
   ["drag", 2, 0.30],
   ["stallSpeed", 0, 60],
   ["stallAccel", 0, 100],
-  ["arriveR", 0, 46]
+  ["arriveR", 0, 46],
+  // 护盾充能器
+  ["shieldHp", 0, 80],
+  ["chargerRange", 0, 140],
+  ["chargerCd", 1, 2.5],
+  ["energyMax", 0, 100],
+  ["energyCost", 0, 25],
+  ["energyRegen", 1, 8.0]
 ];
 
 // ---------------------------------------------------------------
@@ -66,7 +77,8 @@ export const FACTION_COLOR = ["#4fa3e8", "#e8614f"];
 export function makeSquads() {
   return SQUAD_DEF.map((d, i) => {
     const p = makeParams();
-    if (d.loose) p.members = 6;
+    p.weapon = "laser";                 // 兵种：攻击方式的载体
+    if (d.loose) { p.members = 6; p.chargers = 0; }
     return {
       id: i,
       key: d.key,
