@@ -15,7 +15,7 @@
 export const WEAPONS = {
   ray: {
     id: "ray", name: "贯穿射线",
-    range: 250, dmg: 12, cd: 1.30,
+    range: 250, dmg: 10, cd: 1.30,
     pierceShield: true,
     shape: "rect", width: 28
   },
@@ -27,9 +27,9 @@ export const WEAPONS = {
   },
   torpedo: {
     id: "torpedo", name: "鱼雷",
-    range: 380, dmg: 40, cd: 3.00,
+    range: 380, dmg: 8, cd: 3.00,
     pierceShield: false,
-    shape: "circle", radius: 68, speed: 210
+    shape: "circle", radius: 50, speed: 210
   }
 };
 

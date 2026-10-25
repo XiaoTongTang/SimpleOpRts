@@ -453,7 +453,7 @@ import {
 
     // 防御：自然回血 → 充能器套盾
     stepRegen(units, dt);
-    stepChargers(units, squads, S, dt);
+    stepChargers(units, squads, S, dt, fx);
 
     // 攻击：锁定 → 命中判定 → 产出伤害事件
     hits.length = 0;
@@ -747,6 +747,70 @@ import {
         ctx.arc(e.x, e.y, 4 + 10 * p, 0, Math.PI * 2);
         ctx.strokeStyle = "hsla(" + hue + ",80%,64%," + (0.45 * t) + ")";
         ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.restore();
+
+      } else if (e.type === "shieldlink") {
+        // 充能器 → 目标盾环 的一条青色弧线
+        const dx = e.x2 - e.x1, dy = e.y2 - e.y1;
+        const len = Math.hypot(dx, dy) || 1;
+        const ux = dx / len, uy = dy / len;
+        // 起点在充能器边缘，终点落在盾环上（不是单位本体）
+        const sx = e.x1 + ux * 5, sy = e.y1 + uy * 5;
+        const ex = e.x2 - ux * (e.rEnd || 8.6), ey = e.y2 - uy * (e.rEnd || 8.6);
+        // 控制点：中点沿"朝上"的法线偏移，形成弧线
+        let nx2 = -uy, ny2 = ux;
+        if (ny2 > 0) { nx2 = -nx2; ny2 = -ny2; }
+        const bend = Math.min(36, len * 0.22);
+        const cx2 = (sx + ex) / 2 + nx2 * bend;
+        const cy2 = (sy + ey) / 2 + ny2 * bend;
+
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        ctx.lineCap = "butt";
+
+        // 流动虚线：偏移随时间递减，虚线朝目标方向跑
+        const el2 = e.max - e.life;
+        ctx.setLineDash([6, 8]);
+        ctx.lineDashOffset = -(el2 * 180);
+
+        // 外发光（虚线）
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.quadraticCurveTo(cx2, cy2, ex, ey);
+        ctx.strokeStyle = "hsla(200,95%,70%," + (0.18 * t) + ")";
+        ctx.lineWidth = 3.6;
+        ctx.stroke();
+
+        // 芯（虚线，流动）
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.quadraticCurveTo(cx2, cy2, ex, ey);
+        ctx.strokeStyle = "hsla(195,100%,84%," + (0.65 * t) + ")";
+        ctx.lineWidth = 1.1;
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+
+        // 落在盾环上的亮点
+        ctx.beginPath();
+        ctx.arc(ex, ey, 2.0, 0, Math.PI * 2);
+        ctx.fillStyle = "hsla(195,100%,90%," + (0.7 * t) + ")";
+        ctx.fill();
+        ctx.restore();
+
+      } else if (e.type === "shieldup") {
+        // 护盾成型：外环向内收拢，最后与护盾环重合（青色）
+        const p = 1 - t;                                   // 0 → 1
+        const r = e.r0 + (e.r1 - e.r0) * p;
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+
+        // 主环
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
+        ctx.strokeStyle = "hsla(200,95%,74%," + (0.45 * t) + ")";
+        ctx.lineWidth = 1.6;
         ctx.stroke();
         ctx.restore();
 

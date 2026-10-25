@@ -53,7 +53,7 @@ export function stepRegen(units, dt) {
  * 护盾充能器
  * G 需要：shieldHp, chargerRange, chargerCd, energyMax, energyCost, energyRegen
  */
-export function stepChargers(units, squads, G, dt) {
+export function stepChargers(units, squads, G, dt, fx = null) {
   const range2 = G.chargerRange * G.chargerRange;
 
   for (const u of units) {
@@ -83,6 +83,23 @@ export function stepChargers(units, squads, G, dt) {
     best.shield = G.shieldHp;
     u.energy -= G.energyCost;
     u.castCd = G.chargerCd;
+
+    // 视觉：一条青色弧线连到目标的盾环上 + 盾从外向内收拢
+    if (fx) {
+      fx.push({
+        type: "shieldlink",
+        x1: u.x, y1: u.y,
+        x2: best.x, y2: best.y,
+        rEnd: 8.6,
+        life: 0.30, max: 0.30
+      });
+      fx.push({
+        type: "shieldup",
+        x: best.x, y: best.y,
+        r0: 15, r1: 8.6,
+        life: 0.45, max: 0.45
+      });
+    }
   }
 }
 
