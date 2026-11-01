@@ -12,7 +12,7 @@ export function drawFx(ctx, fx) {
     const hue = e.hue === undefined ? 200 : e.hue;      // 统一用所属小队的色相
 
     if (e.type === "beam") {
-      // 瞬时线段：激光与贯穿射线共用（贯穿射线只是略粗）
+      // 瞬时线段：激光与轨道炮共用（轨道炮只是略粗）
       const ws = e.w || 1;
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
@@ -47,7 +47,7 @@ export function drawFx(ctx, fx) {
       ctx.restore();
 
     } else if (e.type === "rayshot") {
-      // 贯穿射线：① 先亮瞄准线 ② 再射出带拖尾的小方块
+      // 轨道炮：① 先亮瞄准线 ② 再射出带拖尾的小方块
       const el = e.max - e.life;
       const aim = e.aim, fly = e.fly;
       const dx = e.x2 - e.x1, dy = e.y2 - e.y1;

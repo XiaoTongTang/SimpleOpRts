@@ -13,6 +13,8 @@
  *   5. 充能器有电量上限，套盾消耗电量，电量随时间回充
  */
 
+import { DEFAULT_HIT_R } from "./spatial.js";
+
 /** 初始化一个单位的战斗状态 */
 export function initCombat(u, sq, idx) {
   u.hp = sq.p.hp;
@@ -20,6 +22,7 @@ export function initCombat(u, sq, idx) {
   u.regen = sq.p.regen;
   u.shield = 0;
   u.weapon = sq.p.weapon || "laser";
+  u.hitR = sq.p.hitR === undefined ? DEFAULT_HIT_R : sq.p.hitR;   // 受击半径
   u.cd = Math.random() * 1.0;          // 错开开火节奏
   u.charger = idx < (sq.p.chargers || 0);
   u.energy = 100;
@@ -28,7 +31,7 @@ export function initCombat(u, sq, idx) {
 
 /**
  * 造成伤害。返回 true 表示目标死亡。
- * pierce = true 时无视护盾（贯穿射线）。
+ * pierce = true 时无视护盾（轨道炮）。
  */
 export function applyDamage(u, dmg, pierce) {
   let left = dmg;
@@ -123,6 +126,7 @@ export function applyCombatParams(units, squads, id) {
       }
       u.regen = sq.p.regen;
       u.weapon = sq.p.weapon || "laser";
+      u.hitR = sq.p.hitR === undefined ? DEFAULT_HIT_R : sq.p.hitR;
       u.charger = idx < (sq.p.chargers || 0);
     }
     idx++;

@@ -27,6 +27,7 @@ import {
   applyDamage, stepRegen, stepChargers, initCombat
 } from "./js/defense-system.js";
 import { drawUnits, drawProjectiles, drawUnitGlyph } from "./js/render-units.js";
+import { Grid, SpatialDebug, SpatialStats } from "./js/spatial.js";
 import { drawFx } from "./js/render-fx.js";
 import { createBoard, stepBoard, drawBoard } from "./js/plinko.js";
 import {
@@ -40,6 +41,7 @@ import {
   const cvs = document.getElementById("c");
   const ctx = cvs.getContext("2d");
   let W = 0, H = 0;
+  let grid = null;            // 空间索引，只服务武器系统（见 design/.../05）
 
   // ---------- 全局参数 ----------
   const S = {
@@ -96,6 +98,10 @@ import {
     cvs.style.width = W + "px";
     cvs.style.height = H + "px";
 
+    // 空间索引跟着战场尺寸走（格子数变了就重建桶）
+    if (!grid) grid = new Grid(W, H, 64);
+    else grid.setSize(W, H);
+
     // 介绍条的高度取决于文案换行，先算它再用
     LEGEND_LAYOUT = buildLegendLayout();
     LEGEND_H = LEGEND_LAYOUT.legendH;
@@ -142,7 +148,7 @@ import {
       hue: faction === 0 ? 205 : 5,
       sat: 70,
       weapon: "laser",
-      p: { members: 1, hp: BASE_HP, regen: 0, chargers: 0 }
+      p: { members: 1, hp: BASE_HP, regen: 0, chargers: 0, hitR: STATION_R }
     }, faction);
 
     const sq = squads[id];
@@ -296,7 +302,12 @@ import {
     stepChargers(units, squads, S, dt, fx);
 
     hits.length = 0;
-    stepWeapons(units, squads, projectiles, dt, hits, combatT, fx);
+
+    // 空间索引：位置已经全部更新完毕，这里重建一次，整帧有效
+    grid.clear();
+    for (let i = 0; i < units.length; i++) grid.insert(i, units[i]);
+
+    stepWeapons(units, squads, projectiles, dt, hits, combatT, fx, grid);
 
     if (hits.length) {
       let anyDead = false;
@@ -771,6 +782,17 @@ import {
   window.__S = S;
   window.__BOARDS = () => boards;
   window.__BASES = () => bases;
+
+  // 空间索引：__SPATIAL.debug.brute = true 可切回全量扫描，用于差分对比
+  window.__SPATIAL = {
+    debug: SpatialDebug,
+    stats: SpatialStats,
+    grid: () => grid,
+    probe() {
+      // 抽一张快照，供外部核对「候选集是否包含所有命中者」
+      return { units: units.length, grid: grid ? { cols: grid.cols, rows: grid.rows, cell: grid.cell } : null };
+    },
+  };
 })();
 </script>
 </body>

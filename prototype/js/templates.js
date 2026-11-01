@@ -31,10 +31,10 @@ export const TEMPLATES = [
   },
   {
     key: "anvil", name: "圣盾战斗群",
-    weapon: "ray",
+    weapon: "railgun",
     hue: [208, 343],
     info: {
-      weapon: "贯穿射线",
+      weapon: "轨道炮",
       defense: "170血,1.5每秒回血,10护盾充能器",
       formation: "12人口,密集抱团阵型"
     },
@@ -125,7 +125,7 @@ export function swatchColor(hue, sat) {
 export const FACTION_NAME = ["蓝方", "红方"];
 
 /** 基地血量 */
-export const BASE_HP = 1000;
+export const BASE_HP = 3000;
 
 /**
  * 基地产出的"无编队"小队模板
