@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>扫掠圆命中判定 · 图解与全文</title>
+<style>
+  :root {
+    --bg:      #0a0f16;
+    --panel:   #0e1620;
+    --panel2:  #111c28;
+    --line:    #22303f;
+    --text:    #c6d4e2;
+    --body:    #a3b6c8;
+    --dim:     #6d8199;
+    --cyan:    #78d2ff;
+    --gold:    #ffc24a;
+    --green:   #5fd97a;
+    --red:     #e8564f;
+    --violet:  #b48cff;
+    --hdr:     56px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  body { min-height: 100vh; }
+
+  /* ---------------- 顶栏 ---------------- */
+  header {
+    position: sticky; top: 0; z-index: 30;
+    height: var(--hdr);
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 18px; border-bottom: 1px solid var(--line);
+    background: rgba(10,15,22,.96); backdrop-filter: blur(6px);
+    white-space: nowrap; overflow-x: auto;
+  }
+  header h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: .04em; flex: 0 0 auto; }
+  header .sub { color: var(--dim); font-size: 12px; flex: 0 0 auto; }
+  .presets { display: flex; gap: 6px; margin-left: auto; flex: 0 0 auto; }
+  .presets button {
+    background: var(--panel2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 5px 11px; font-size: 12px; cursor: pointer; font-family: inherit;
+  }
+  .presets button:hover { border-color: var(--cyan); color: #fff; }
+
+  /* ---------------- 主布局 ---------------- */
+  #main { display: flex; align-items: flex-start; }
+
+  #stage {
+    position: sticky; top: var(--hdr);
+    height: calc(100vh - var(--hdr));
+    flex: 0 0 54%; min-width: 0;
+    display: flex; flex-direction: column;
+    border-right: 1px solid var(--line);
+    background: var(--bg);
+  }
+  #canvasWrap { flex: 1 1 auto; min-height: 0; position: relative; }
+  canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+
+  /* 仪表盘 */
+  #meter {
+    flex: 0 0 auto; padding: 10px 14px 12px;
+    border-top: 1px solid var(--line); background: var(--panel);
+  }
+  .badge {
+    display: inline-block; padding: 6px 12px; border-radius: 6px;
+    font-weight: 600; font-size: 13px; border: 1px solid; margin-bottom: 8px;
+  }
+  .badge.hit  { color: var(--green); border-color: #2c5c3a; background: #10241a; }
+  .badge.miss { color: var(--red);   border-color: #5c2c2c; background: #241010; }
+
+  .nums { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .num {
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 5px;
+    padding: 3px 8px; font: 12px/1.4 ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  .num b { color: var(--dim); font-weight: 400; margin-right: 5px; }
+  .num span { color: var(--gold); }
+
+  .sliders {
+    display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+    font-size: 12px; color: var(--dim);
+  }
+  .sliders label { display: flex; align-items: center; gap: 6px; }
+  .sliders input[type=range] { width: 110px; accent-color: #4a9fe0; }
+  .sliders output { font-family: ui-monospace, Consolas, monospace; color: var(--gold); }
+
+  /* ---------------- 右侧长文 ---------------- */
+  #doc {
+    flex: 1 1 auto; min-width: 0;
+    padding: 10px 42px 140px;
+    max-width: 860px;
+  }
+
+  #doc h2 {
+    font-size: 19px; margin: 44px 0 14px; color: var(--cyan);
+    padding-bottom: 9px; border-bottom: 1px solid var(--line);
+    letter-spacing: .02em;
+  }
+  #doc h2:first-of-type { margin-top: 18px; }
+  #doc h3 { font-size: 15px; margin: 26px 0 8px; color: var(--text); }
+  #doc p  { margin: 11px 0; color: var(--body); line-height: 1.9; }
+  #doc ul, #doc ol { color: var(--body); line-height: 1.9; padding-left: 22px; }
+  #doc li { margin: 4px 0; }
+  #doc strong { color: var(--text); font-weight: 600; }
+  #doc code {
+    background: #16212d; padding: 1px 5px; border-radius: 3px;
+    font: 12.5px ui-monospace, "Cascadia Code", Consolas, monospace;
+    color: var(--gold); white-space: nowrap;
+  }
+  #doc em { color: var(--violet); font-style: normal; }
+
+  .formula {
+    background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 6px; padding: 12px 14px; margin: 14px 0;
+    font: 13px/1.8 ui-monospace, "Cascadia Code", Consolas, monospace;
+    white-space: pre-wrap; overflow-x: auto; color: var(--body);
+  }
+  .formula .cm { color: var(--dim); }
+  .formula .v  { color: var(--gold); }
+
+  .note {
+    border-left: 3px solid var(--cyan); background: #0d1a25;
+    padding: 10px 14px; margin: 14px 0; border-radius: 0 5px 5px 0;
+    color: var(--body); line-height: 1.85;
+  }
+  .note.warn { border-left-color: var(--gold); background: #1d180c; }
+  .note.bad  { border-left-color: var(--red);  background: #1e1010; }
+
+  /* 核心目的 */
+  .core {
+    border: 1px solid #27465e; border-radius: 8px;
+    background: linear-gradient(180deg, #0d1d29, #0b1620);
+    padding: 16px 18px 14px; margin: 22px 0 10px;
+  }
+  .core .ct {
+    color: var(--cyan); font-weight: 700; font-size: 12px;
+    letter-spacing: .16em; margin-bottom: 10px;
+  }
+  #doc .core p { margin: 10px 0 0; line-height: 1.85; }
+  .core .chain {
+    font: 13px/2 ui-monospace, "Cascadia Code", Consolas, monospace;
+    padding: 10px 0 4px; color: var(--body);
+  }
+  .core .chain .cf { color: var(--gold); }
+  .core .chain .cm { color: var(--dim); margin-left: 14px; font-size: 12px; }
+  .core .chain .ar { color: var(--cyan); font-size: 12px; }
+
+  table.t {
+    border-collapse: collapse; margin: 14px 0; width: 100%;
+    font-size: 13px;
+  }
+  table.t th, table.t td {
+    border: 1px solid var(--line); padding: 7px 11px; text-align: left;
+  }
+  table.t th { background: var(--panel2); color: var(--cyan); font-weight: 600; }
+  table.t td { color: var(--body); }
+  table.t td code { font-size: 12px; }
+
+  /* 分支高亮 */
+  .branch {
+    border-left: 3px solid #1b2836; padding: 10px 14px; margin: 12px 0;
+    border-radius: 0 5px 5px 0; transition: background .18s, border-color .18s;
+    background: #0c141d;
+  }
+  .branch > .bt { font-weight: 600; color: var(--dim); margin-bottom: 4px; font-size: 13px; }
+  .branch p { margin: 6px 0; }
+  .branch.active { border-left-color: var(--green); background: #0e1d16; }
+  .branch.active > .bt { color: var(--green); }
+  .branch.active > .bt::before { content: "▶ 当前触发 · "; }
+
+  /* 图例 */
+  .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; margin: 14px 0; }
+  .legend div { display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: var(--dim); }
+  .legend i { width: 24px; height: 0; border-top-width: 3px; border-top-style: solid; flex: 0 0 auto; }
+  .legend i.dot { width: 10px; height: 10px; border: 0; border-radius: 50%; }
+  .legend i.thick { border-top-width: 11px; }
+
+  /* 窄屏 */
+  @media (max-width: 1080px) {
+    #main { flex-direction: column; }
+    #stage {
+      position: relative; top: 0; height: 72vh;
+      flex: none; width: 100%; border-right: 0; border-bottom: 1px solid var(--line);
+    }
+    #doc { padding: 10px 20px 120px; }
+    #doc h2 { font-size: 17px; }
+    .legend { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>扫掠圆命中判定</h1>
+  <span class="sub">sweptHit(p0, p1, r, c, R) — 拖动 p0 / p1 / c</span>
+  <div class="presets">
+    <button data-preset="hit">正常命中</button>
+    <button data-preset="tangent">相切</button>
+    <button data-preset="miss">未命中</button>
+    <button data-preset="inside">帧首已重叠</button>
+    <button data-preset="future">这一帧还走不到</button>
+  </div>
+</header>
+
+<div id="main">
+
+  <!-- ============ 左：图解（吸顶） ============ -->
+  <div id="stage">
+    <div id="canvasWrap"><canvas id="cv"></canvas></div>
+
+    <div id="meter">
+      <div id="verdict" class="badge hit">—</div>
+
+      <div class="nums">
+        <div class="num"><b>rr</b><span data-live="rr">—</span></div>
+        <div class="num"><b>a</b><span data-live="a">—</span></div>
+        <div class="num"><b>b</b><span data-live="b">—</span></div>
+        <div class="num"><b>cc</b><span data-live="cc">—</span></div>
+        <div class="num"><b>disc</b><span data-live="disc">—</span></div>
+        <div class="num"><b>t₀</b><span data-live="t0">—</span></div>
+        <div class="num"><b>t₁</b><span data-live="t1">—</span></div>
+      </div>
+
+      <div class="sliders">
+        <label>弹丸 r <input id="s-r" type="range" min="0.5" max="10" step="0.5" value="3"><output id="s-r-v">3.0</output></label>
+        <label>舰船 R <input id="s-R" type="range" min="2" max="30" step="1" value="11"><output id="s-R-v">11</output></label>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 右：全文 ============ -->
+  <article id="doc">
+
+    <div class="core">
+      <div class="ct">核 心 目 的</div>
+      <p>整段代码只做一件事：<strong>把一条几何陈述，改写成一条代数方程，好让求根公式能用。</strong></p>
+
+      <div class="chain">
+        <span class="cf">|p(t) − c|² = rr²</span>
+        <span class="cm">几何陈述：某一时刻，弹丸到圆心的距离恰好等于 rr</span><br>
+        <span class="ar">↓　把 p(t) = p0 + t·d、f = p0 − c 代进去，展开点积</span><br>
+        <span class="cf">A·t² + B·t + C = 0</span>
+        <span class="cm">代数方程：t 的二次多项式</span><br>
+        <span class="ar">↓　求根公式</span><br>
+        <span class="cf">t = (−B ± √(B² − 4AC)) / 2A</span>
+      </div>
+
+      <p>第一行说得对，但<strong>解不出来</strong>——<code>t</code> 埋在向量 <code>p(t)</code> 里、又埋在范数里，
+         而求根公式只认多项式。第三行才是能算的形式。</p>
+
+      <p>中间出现的 <code>rr</code>、<code>d</code>、<code>f</code>、<code>a</code>、<code>b</code>、<code>cc</code>
+         <strong>全部只是为了完成这一次改写而引入的中间量</strong>。
+         它们不是新的条件，不是新的约束，也不构成第二个方程。</p>
+    </div>
+
+    <h2>0 · 这段代码在回答什么</h2>
+
+    <p>一发半径 <code>r</code> 的弹丸，这一帧从 <code>p0</code> <strong>扫过</strong>到 <code>p1</code>。
+       一个半径 <code>R</code>、圆心 <code>c</code> 的圆（舰船），这一帧不动。</p>
+
+    <p>问两件事：</p>
+    <ol>
+      <li>这一帧<strong>有没有</strong>撞上？</li>
+      <li>如果撞上了，撞上的时刻在帧内的哪个位置？</li>
+    </ol>
+
+    <p>位置用归一化参数 <code>t ∈ [0,1]</code> 表示——<code>t=0</code> 帧首，<code>t=1</code> 帧末。
+       这个 <code>t</code> 就是返回值，也是整个函数除「命中/未命中」之外的全部信息量。</p>
+
+    <div class="note">
+      <strong>为什么不逐帧做「点 vs 圆」测试？</strong><br>
+      因为会<strong>隧穿</strong>。dt = 1/60，弹速 900 时一帧走 15px，比单位半径（≈4.5）还大。
+      逐帧测试会直接从目标身上跳过去。扫掠判定用「线段」代替「点」，天然免疫。
+    </div>
+
+    <h3>图例</h3>
+    <div class="legend">
+      <div><i style="border-color:#4a9fe0"></i>舰船本体 R</div>
+      <div><i style="border-color:rgba(120,210,255,.5); border-top-style:dashed"></i>膨胀圆 rr = R + r</div>
+      <div><i style="border-color:#ffc24a"></i>弹丸 r（帧首 / 帧末）</div>
+      <div><i class="thick" style="border-color:rgba(255,194,74,.2)"></i>扫掠区域（胶囊）</div>
+      <div><i style="border-color:#7f9ab5"></i>线段 p0 → p1</div>
+      <div><i class="dot" style="background:#b48cff"></i>膨胀圆上的进 / 出点</div>
+      <div><i class="dot" style="background:#5fd97a"></i>命中点 p0 + t·d</div>
+    </div>
+
+    <!-- ---------------------------------------------------------- -->
+    <h2>1 · 第一步：闵可夫斯基和</h2>
+
+    <p>两个圆相交的充要条件是<strong>圆心距 ≤ 半径之和</strong>：</p>
+
+    <div class="formula">|P弹 − P目| ≤ R + r</div>
+
+    <p>把 <code>r</code> 挪到右边：</p>
+
+    <div class="formula">|P弹 − P目| ≤ (R + r)</div>
+
+    <p>这在几何上叫<strong>闵可夫斯基和</strong>（Minkowski sum）的一个特例：<code>圆 ⊕ 圆 = 圆</code>，半径相加。</p>
+
+    <p><strong>等价表述</strong>：把弹丸缩成一个<strong>点</strong>，把舰船膨胀成半径 <code>R+r</code> 的<strong>大圆</strong>。
+       判定结果一模一样。</p>
+
+    <p>于是整段代码只需要处理「点 vs 圆」，永远不用处理「圆 vs 圆」。</p>
+
+    <div class="formula">rr = R + r = <span class="v" data-live="rr">14.00</span>      <span class="cm">// 图中那条青色虚线圆</span></div>
+
+    <div class="note">
+      这一行不是「为了省事把两个半径加起来」，是一次<strong>严格的等价变换</strong>。
+      它是整段代码的地基——后面所有公式都建立在「弹丸是一个点」这个前提上。
+      图中那条虚线圈就是它：弹丸的圆心一旦碰到这条线，就是命中。
+    </div>
+
+    <!-- ---------------------------------------------------------- -->
+    <h2>2 · 第二步：把线段写成方程</h2>
+
+    <div class="formula">p(t) = p0 + t·d        t ∈ [0,1]
+d = p1 − p0            <span class="cm">// 这一帧的位移向量</span>
+f = p0 − c             <span class="cm">// 帧首时，弹丸相对圆心的位置</span></div>
+
+    <div class="formula">d = (<span class="v" data-live="dx">0</span>, <span class="v" data-live="dy">0</span>)
+f = (<span class="v" data-live="fx">0</span>, <span class="v" data-live="fy">0</span>)</div>
+
+    <p>只需要这两个向量，后面所有量都能从它们导出。图里的紫色箭头是 <code>f</code>，灰色箭头是 <code>d</code>。</p>
+
+    <!-- ---------------------------------------------------------- -->
+    <h2>3 · 第三步：写出相交条件</h2>
+
+    <p>「点在 <code>t</code> 时刻压在大圆边界上」：</p>
+
+    <div class="formula">|p(t) − c|² = rr²
+
+|f + t·d|² = rr²              <span class="cm">// 同一个式子的另一种写法，不是第二个条件</span></div>
+
+    <div class="note warn">
+      <strong>注意：这不是两条方程，是同一条。</strong><br>
+      <code>p(t) − c</code> 和 <code>f + t·d</code> 是<strong>同一个向量</strong>，只是换了个名字：
+      <code>(p0 + t·d) − c = (p0 − c) + t·d</code>，三项恒等，没有近似。<br>
+      写第二遍的唯一目的，是把 <code>t</code> 从范数里挖出来，变成能套求根公式的多项式。
+      类比：<code>x + x + 1 = 5</code> 和 <code>2x = 4</code> 是同一条方程，不是两条。<br>
+      代码里最终也<strong>只有一条</strong>：<code>a·t² + b·t + cc = 0</code>。前两行都只是它的「人话版本」。
+    </div>
+
+    <p>展开点积：</p>
+
+    <div class="formula">(f + t·d)·(f + t·d) = rr²
+f·f + 2t(f·d) + t²(d·d) = rr²</div>
+
+    <p>移项，得到标准的 <code>a·t² + b·t + cc = 0</code>：</p>
+
+    <table class="t">
+      <tr><th>系数</th><th>代码</th><th>表达式</th><th>含义</th></tr>
+      <tr><td><code>a</code></td><td><code>dx*dx + dy*dy</code></td><td><code>|d|²</code></td><td>这一帧走了多远的平方。<strong>必须 &gt; 0</strong></td></tr>
+      <tr><td><code>b</code></td><td><code>2*(fx*dx + fy*dy)</code></td><td><code>2(f·d)</code></td><td>位移方向与「弹丸→圆心」方向的点积 ×2</td></tr>
+      <tr><td><code>cc</code></td><td><code>fx*fx + fy*fy - rr*rr</code></td><td><code>|f|² − rr²</code></td><td>帧首距离平方减去半径平方</td></tr>
+    </table>
+
+    <div class="formula">a  = <span class="v" data-live="a">0</span>
+b  = <span class="v" data-live="b">0</span>
+cc = <span class="v" data-live="cc">0</span></div>
+
+    <div class="note warn">
+      <strong>命名陷阱</strong>：代码里叫 <code>cc</code> 不叫 <code>c</code>，因为 <code>c</code> 已经被「目标圆心」占用了。
+      但它<strong>不是</strong>标准二次方程里的 <code>c</code>，它是常数项。
+      读的时候别按 ABC 套公式——记住 <code>cc</code> 的单位是「长度²」就对了。
+    </div>
+
+    <!-- ---------------------------------------------------------- -->
+    <h2>4 · 第四步：判别式</h2>
+
+    <div class="formula">disc = b² − 4·a·cc = <span class="v" data-live="disc">0</span></div>
+
+    <table class="t">
+      <tr><th><code>disc</code></th><th>几何含义</th><th>处理</th></tr>
+      <tr><td><code>&lt; 0</code></td><td>直线与圆<strong>无交点</strong></td><td><code>return -1</code></td></tr>
+      <tr><td><code>= 0</code></td><td>相切（擦边），算命中</td><td>一个根</td></tr>
+      <tr><td><code>&gt; 0</code></td><td>两个交点：进入 + 离开</td><td>取先发生的那个</td></tr>
+    </table>
+
+    <p>注意这一步的严谨性：解出来的是<strong>无限长直线</strong>与圆的交点，不是线段。
+       但线段是直线的子集，所以「直线无交点」⟹「线段无交点」——
+       这个提前返回是安全的、不是猜的。</p>
+
+    <!-- ---------------------------------------------------------- -->
+    <h2>5 · 第五步：取左根 = 进入时刻</h2>
+
+    <div class="formula">t = (−b ± √disc) / (2a)        <span class="cm">// 两个根 = 进入 / 离开</span></div>
+
+    <p>因为 <code>a = |d|² &gt; 0</code>（二次项系数为正，抛物线开口向上，对应「速度不变」所以是个匀速运动），所以：</p>
+
+    <div class="formula">左根 (−b − √disc)/(2a)  &lt;  右根 (−b + √disc)/(2a)</div>
+
+    <p>左边先发生，是<strong>进入时刻</strong>。我们要的是「第一次撞上」，所以取左根。</p>
+
+    <div class="formula">t_enter = <span class="v" data-live="t0">—</span>
+t_exit  = <span class="v" data-live="t1">—</span></div>
+
+    <!-- ---------------------------------------------------------- -->
+    <h2>6 · 四个提前返回分支</h2>
+
+    <p>这里是这段代码真正的功夫。它们不是「防御性编程」的装饰，<strong>每一条都对应一个会算错的真实几何构型</strong>。
+       按下面任意一个预设按钮，对应的分支会亮起来。</p>
+
+    <h3>6.1 起点已重叠 → <code>return 0</code></h3>
+
+    <div class="branch" data-branch="inside">
+      <div class="bt">帧首已重叠</div>
+      <p><code>if (fx*fx + fy*fy &lt;= rr*rr) return 0;</code></p>
+      <p><strong>这一行不是优化，是正确性所必需的。</strong></p>
+      <p>反证：如果起点在圆内，则 <code>cc = |f|² − rr² &lt; 0</code>。那么</p>
+      <p><code>两根之积 = cc / a &lt; 0</code></p>
+      <p>两根<strong>异号</strong>。左根是负数，会被最后一行 <code>t &gt;= 0</code> 判掉，函数返回 <code>-1</code> ——
+         <strong>漏判一次明明已经贴脸的命中</strong>。</p>
+      <p>现在点「帧首已重叠」预设，看左边仪表盘：<code>t₀</code> 会显示一个<strong>负数</strong>
+         （约 <span style="color:var(--gold)">−0.2204</span>），但判定结果仍然是 <code>0</code>。这就是证据。</p>
+      <p>语义上：帧首就已经重叠，返回 <code>t = 0</code> 表示「这一刻就算命中」。</p>
+      <p><strong>为什么用 <code>&lt;=</code> 而不是 <code>&lt;</code>？</strong>
+         起点恰好<strong>压在边界上</strong>时 <code>cc = 0</code>，两根是 <code>0</code> 和 <code>−b/a</code>。
+         若 <code>b &gt; 0</code>，左根 = <code>−b/a &lt; 0</code>，一样会被判掉。
+         所以必须把「贴边」也算进「已重叠」。这个等号是刻意的。</p>
+    </div>
+
+    <h3>6.2 弹丸没动 → <code>return -1</code></h3>
+
+    <div class="branch" data-branch="static">
+      <div class="bt">弹丸静止</div>
+      <p><code>if (a &lt; 1e-9) return -1;</code></p>
+      <p><code>a = |d|²</code>。若 <code>a ≈ 0</code>，两个后果：</p>
+      <ol>
+        <li>后面除以 <code>2a</code> 会除零或精度崩塌；</li>
+        <li>语义上，一个<strong>完全静止</strong>的弹丸不可能撞上任何东西——而「起点就重叠」那种情况 6.1 已经截走了。</li>
+      </ol>
+      <p>所以这里返回 <code>-1</code> 是<strong>正确</strong>的，不是没考虑到的退化情形。</p>
+    </div>
+
+    <h3>6.3 无交点 → <code>return -1</code></h3>
+
+    <div class="branch" data-branch="nointer">
+      <div class="bt">无交点</div>
+      <p><code>if (disc &lt; 0) return -1;</code></p>
+      <p>见第 4 节。图中表现为：线段整条都在青色膨胀圆的外面。</p>
+    </div>
+
+    <h3>6.4 线段范围外 → 最后一行裁剪</h3>
+
+    <div class="branch" data-branch="frozen">
+      <div class="bt">交点在后方</div>
+      <p><code>t &lt; 0</code>：交点在 <code>p0</code> 的<strong>后方</strong>——弹已经飞过目标，正在远离。不算命中。</p>
+    </div>
+
+    <div class="branch" data-branch="future">
+      <div class="bt">这一帧还走不到</div>
+      <p><code>t &gt; 1</code>：交点在 <code>p1</code> 的<strong>前方</strong>——这一帧还走不到，下一帧再算。</p>
+      <p>点这个预设，<code>t₀ ≈ 1.6400</code>，你能直接看到为什么 <code>t &lt;= 1</code> 这个裁剪不能省。</p>
+    </div>
+
+    <div class="branch" data-branch="hit">
+      <div class="bt">命中</div>
+      <p><code>return (t &gt;= 0 &amp;&amp; t &lt;= 1) ? t : -1;</code></p>
+      <p>这就是「<strong>线段</strong>」与「<strong>直线</strong>」的分界，也是这个函数正确的关键。
+         上界 <code>t &lt;= 1</code> 和下界 <code>t &gt;= 0</code> 各裁掉一种构型，剩下的才是真命中。</p>
+    </div>
+
+    <!-- ---------------------------------------------------------- -->
+    <h2>7 · 手算一遍</h2>
+
+    <p>取 <code>p0 = (0,0)</code>，<code>p1 = (100,0)</code>，<code>r = 2</code>，<code>c = (50,10)</code>，<code>R = 10</code>，于是 <code>rr = 12</code>。</p>
+
+    <div class="formula">d  = (100, 0)
+f  = (-50, -10)
+
+a  = 100²                        = 10000
+b  = 2·(-50·100 + (-10)·0)       = -10000
+cc = (2500 + 100) − 144          = 2456
+disc = 10000² − 4·10000·2456     = 1,760,000
+√disc ≈ 1326.65
+
+t = (10000 − 1326.65) / 20000 = 0.4337</div>
+
+    <p>命中点 = <code>(43.37, 0)</code>。</p>
+
+    <p><strong>反验</strong>：到圆心 <code>(50,10)</code> 的距离 = <code>√(6.63² + 10²) = √143.97 ≈ 12.00 = rr</code> ✅</p>
+
+    <p><strong>擦边特例</strong>：把 <code>R</code> 改成 8（<code>rr = 10</code>），则 <code>cc = 2500</code>，
+       <code>disc = 1e8 − 1e8 = 0</code>，<code>t = 0.5</code>，命中点 <code>(50,0)</code>，
+       到圆心距离正好 <code>10</code>。相切，代码不需要特殊处理也能算对。
+       点顶部的「相切」预设可以看到这个状态。</p>
+
+    <!-- ---------------------------------------------------------- -->
+    <h2>8 · <code>t</code> 不只是布尔值</h2>
+
+    <p>返回一个数而不是 <code>true</code>，是为了三件事。</p>
+
+    <h3>① 爆炸要炸在命中处，不是帧末处</h3>
+
+    <div class="formula">const hx = p0.x + t * (p1.x - p0.x);
+const hy = p0.y + t * (p1.y - p0.y);</div>
+
+    <p>否则高速弹的爆炸会往前窜一截，视觉和数值都对不上。图中那个绿色圆点就是 <code>h</code>。</p>
+
+    <h3>② 穿透排序</h3>
+
+    <p>一发贯穿弹这一帧可能同时命中 3 个目标。收集所有 <code>t</code>、升序排、取前 <code>pierce+1</code> 个——
+       这就是「先打中谁」。</p>
+
+    <div class="formula">hits.sort((A, B) =&gt; A.t - B.t);</div>
+
+    <h3>③ 确定性</h3>
+
+    <p><code>t</code> 是连续的，排序稳定。但两个目标正面对齐时 <code>t</code> 可能完全相同，
+       要加 tiebreak（按单位 id），否则结算顺序会随数组顺序抖动。
+       这正是 <code>04-改造步骤.md</code> 里那个「网格导致的蝴蝶效应」的来源。</p>
+
+    <!-- ---------------------------------------------------------- -->
+    <h2>9 · 已知局限</h2>
+
+    <p>诚实列出，不建议现在解决。</p>
+
+    <ol>
+      <li><strong>假设帧内是直线。</strong>追踪弹在这一帧内是转弯的，严格应该用弧线扫掠。
+          dt = 1/60 且转向速率有限时，直线段近似足够；要更准就把一帧拆成 N 个子步，通常 N = 2 就够。</li>
+
+      <li><strong>只处理圆。</strong>驱逐舰这种长条，用单圆会「头尾判小、腰判大」。
+          解法是<strong>多圆胶囊</strong>——沿舰体中轴排 2–3 个圆，每个独立判定。不是 OBB，后者数学多一维，收益有限。</li>
+
+      <li><strong>目标视为帧内静止。</strong>目标速度约 96 px/s，一帧 1.6px，最多带来 1.6px 误差，
+          远小于 <code>hitR ≈ 4.5</code>，可以接受。</li>
+
+      <li><strong>它只回答「我和这一个目标」。</strong>谁先撞、撞几个，是调用方的事。</li>
+    </ol>
+
+    <!-- ---------------------------------------------------------- -->
+    <h2>10 · 为什么这 20 行能统一所有武器</h2>
+
+    <p>关键在于：<strong>它只吃 <code>p0 → p1</code>，不吃「为什么这么走」</strong>。</p>
+
+    <table class="t">
+      <tr><th>武器</th><th>怎么调用它</th></tr>
+      <tr><td>机枪</td><td><code>p0</code> 到 <code>p1</code> 是这一帧的位移，速度 × 寿命给出总长度</td></tr>
+      <tr><td>激光</td><td>同上，但整条线在一帧内走完（<code>hitscan</code>）</td></tr>
+      <tr><td>轨道炮</td><td>同上 + <code>pierce = 3</code></td></tr>
+      <tr><td>导弹</td><td>先积分追踪力得到 <code>p1</code>，再调用</td></tr>
+      <tr><td>弹跳弹</td><td>先把速度关于墙反射，得到 <code>p1</code>，再调用</td></tr>
+    </table>
+
+    <div class="note">
+      <strong>弹道怎么配，这个函数一行都不用改。</strong>
+      这就是「配置化」的地基——不是把字段变多，是让判定和弹道互不认识。
+    </div>
+
+    <!-- ---------------------------------------------------------- -->
+    <h2>附 · 完整代码</h2>
+
+    <div class="formula">/**
+ * 扫掠圆判定：半径 r 的弹丸从 p0 走到 p1，是否撞上半径 R、圆心 c 的圆。
+ * @returns {number} 命中时刻 t ∈ [0,1]；未命中返回 -1
+ */
+function sweptHit(p0, p1, r, c, R) {
+  const dx = p1.x - p0.x, dy = p1.y - p0.y;
+  const fx = p0.x - c.x,  fy = p0.y - c.y;
+  const rr = R + r;                              <span class="cm">// 闵可夫斯基和：圆 ⊕ 圆 = 圆</span>
+
+  if (fx*fx + fy*fy &lt;= rr*rr) return 0;          <span class="cm">// 帧首已重叠（含贴边）</span>
+
+  const a = dx*dx + dy*dy;                       <span class="cm">// |d|²</span>
+  if (a &lt; 1e-9) return -1;                       <span class="cm">// 静止弹丸撞不到任何东西</span>
+
+  const b   = 2*(fx*dx + fy*dy);                 <span class="cm">// 2(f·d)</span>
+  const cc  = fx*fx + fy*fy - rr*rr;             <span class="cm">// |f|² − rr²</span>
+  const disc = b*b - 4*a*cc;
+  if (disc &lt; 0) return -1;                       <span class="cm">// 无限长直线都无交点，线段更不会有</span>
+
+  const t = (-b - Math.sqrt(disc)) / (2*a);      <span class="cm">// 取左根 = 进入时刻</span>
+  return (t &gt;= 0 &amp;&amp; t &lt;= 1) ? t : -1;            <span class="cm">// 裁到线段范围内</span>
+}</div>
+
+    <p style="color:var(--dim); font-size:12.5px; margin-top:40px;">
+      配套文档：<code>02-命中判定-扫掠圆.md</code> · <code>03-武器参数表.md</code> · <code>04-改造步骤.md</code>
+    </p>
+
+  </article>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  // ------------------------------------------------------------------
+  // 状态
+  // ------------------------------------------------------------------
+  const state = {
+    p0: { x: -5,  y: 0 },
+    p1: { x: 105, y: 0 },
+    c:  { x: 50,  y: 12 },
+    r: 3,
+    R: 11,
+  };
+
+  const PRESETS = {
+    hit:     { p0:{x:-5,y:0},  p1:{x:105,y:0}, c:{x:50,y:12}, r:3, R:11 },
+    tangent: { p0:{x:-5,y:0},  p1:{x:105,y:0}, c:{x:50,y:14}, r:3, R:11 },
+    miss:    { p0:{x:-5,y:0},  p1:{x:105,y:0}, c:{x:50,y:25}, r:3, R:11 },
+    inside:  { p0:{x:50,y:5},  p1:{x:105,y:5}, c:{x:50,y:12}, r:3, R:11 },
+    future:  { p0:{x:-5,y:0},  p1:{x:20,y:0},  c:{x:50,y:0},  r:3, R:11 },
+  };
+
+  const WORLD = { x0: -30, y0: -52, x1: 130, y1: 52 };
+
+  const cv  = document.getElementById("cv");
+  const ctx = cv.getContext("2d");
+
+  let view = { s: 1, ox: 0, oy: 0 };
+  let cssW = 0, cssH = 0;
+
+  // ------------------------------------------------------------------
+  // 坐标变换
+  // ------------------------------------------------------------------
+  function layout() {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = cv.parentElement.getBoundingClientRect();
+    cssW = Math.max(320, rect.width);
+    cssH = Math.max(220, rect.height);
+    cv.width  = Math.round(cssW * dpr);
+    cv.height = Math.round(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const ww = WORLD.x1 - WORLD.x0;
+    const wh = WORLD.y1 - WORLD.y0;
+    const s  = Math.min(cssW / ww, cssH / wh) * 0.88;
+    view.s  = s;
+    view.ox = (cssW - ww * s) / 2 - WORLD.x0 * s;
+    view.oy = (cssH - wh * s) / 2 - WORLD.y0 * s;
+  }
+
+  const SX = x => view.ox + x * view.s;
+  const SY = y => view.oy + y * view.s;
+
+  // ------------------------------------------------------------------
+  // 数学：与 sweptHit 一致，额外给出几何辅助量与分支标记
+  // ------------------------------------------------------------------
+  function solve(st) {
+    const { p0, p1, c, r, R } = st;
+
+    const dx = p1.x - p0.x, dy = p1.y - p0.y;
+    const fx = p0.x - c.x,  fy = p0.y - c.y;
+    const rr = R + r;
+
+    const a  = dx * dx + dy * dy;
+    const b  = 2 * (fx * dx + fy * dy);
+    const cc = fx * fx + fy * fy - rr * rr;
+    const disc = b * b - 4 * a * cc;
+
+    const startInside = (fx * fx + fy * fy) <= rr * rr;
+
+    let tEnter = null, tExit = null;
+    if (disc >= 0 && a > 1e-9) {
+      const sq = Math.sqrt(disc);
+      tEnter = (-b - sq) / (2 * a);
+      tExit  = (-b + sq) / (2 * a);
+    }
+
+    let enterPt = null, exitPt = null;
+    if (a > 1e-9 && disc >= 0) {
+      const L = Math.sqrt(a);
+      const ux = dx / L, uy = dy / L;
+      const sProj = -(fx * ux + fy * uy);
+      const foot = { x: p0.x + ux * sProj, y: p0.y + uy * sProj };
+      const half = Math.sqrt(disc) / (2 * L);
+      enterPt = { x: foot.x - ux * half, y: foot.y - uy * half };
+      exitPt  = { x: foot.x + ux * half, y: foot.y + uy * half };
+    }
+
+    let result, t = -1, reason, branch;
+    if (startInside)          { result = 0;  t = 0;  reason = "帧首已重叠";        branch = "inside"; }
+    else if (a < 1e-9)        { result = -1;         reason = "弹丸静止";          branch = "static"; }
+    else if (disc < 0)        { result = -1;         reason = "无交点";            branch = "nointer"; }
+    else if (tEnter < 0)      { result = -1;         reason = "交点在后方";        branch = "frozen"; }
+    else if (tEnter > 1)      { result = -1;         reason = "这一帧还走不到";    branch = "future"; }
+    else                      { result = 1;  t = tEnter; reason = "命中";         branch = "hit"; }
+
+    return { dx, dy, fx, fy, rr, a, b, cc, disc,
+             tEnter, tExit, enterPt, exitPt,
+             startInside, result, t, reason, branch };
+  }
+
+  // ------------------------------------------------------------------
+  // 绘制辅助
+  // ------------------------------------------------------------------
+  const COL = {
+    target: "#4a9fe0",
+    expand: "rgba(120,210,255,.42)",
+    proj:   "#ffc24a",
+    sweep:  "rgba(255,194,74,.13)",
+    seg:    "#7f9ab5",
+    hit:    "#5fd97a",
+    inter:  "#b48cff",
+  };
+
+  function circle(x, y, rw, stroke, width, dash) {
+    ctx.save();
+    ctx.setLineDash(dash || []);
+    ctx.beginPath();
+    ctx.arc(SX(x), SY(y), rw * view.s, 0, Math.PI * 2);
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = width || 1.5;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function tag(x, y, text, color) {
+    ctx.save();
+    ctx.font = "600 12px ui-monospace, Consolas, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const w = ctx.measureText(text).width + 10;
+    ctx.fillStyle = "rgba(8,14,20,.82)";
+    ctx.fillRect(x - w / 2, y - 9, w, 18);
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+    ctx.restore();
+  }
+
+  function arrow(x1, y1, x2, y2, color, width, label) {
+    const ax = SX(x1), ay = SY(y1), bx = SX(x2), by = SY(y2);
+    const ang = Math.atan2(by - ay, bx - ax);
+    const head = 9;
+
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width || 1.6;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(bx - Math.cos(ang) * head * 0.85, by - Math.sin(ang) * head * 0.85);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.lineTo(bx - Math.cos(ang - 0.42) * head, by - Math.sin(ang - 0.42) * head);
+    ctx.lineTo(bx - Math.cos(ang + 0.42) * head, by - Math.sin(ang + 0.42) * head);
+    ctx.closePath();
+    ctx.fill();
+
+    if (label) {
+      const mx = (ax + bx) / 2 + Math.cos(ang + Math.PI / 2) * 13;
+      const my = (ay + by) / 2 + Math.sin(ang + Math.PI / 2) * 13;
+      tag(mx, my, label, color);
+    }
+    ctx.restore();
+  }
+
+  function dot(x, y, rpx, color, ring) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(SX(x), SY(y), rpx, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    if (ring) {
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(10,16,22,.9)";
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // ------------------------------------------------------------------
+  // 主绘制
+  // ------------------------------------------------------------------
+  function draw() {
+    const st = state;
+    const M  = solve(st);
+
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    // 背景网格
+    ctx.save();
+    ctx.strokeStyle = "rgba(34,48,63,.55)";
+    ctx.lineWidth = 1;
+    const step = 10;
+    for (let x = WORLD.x0 - (WORLD.x0 % step); x <= WORLD.x1; x += step) {
+      ctx.beginPath(); ctx.moveTo(SX(x), SY(WORLD.y0)); ctx.lineTo(SX(x), SY(WORLD.y1)); ctx.stroke();
+    }
+    for (let y = WORLD.y0 - (WORLD.y0 % step); y <= WORLD.y1; y += step) {
+      ctx.beginPath(); ctx.moveTo(SX(WORLD.x0), SY(y)); ctx.lineTo(SX(WORLD.x1), SY(y)); ctx.stroke();
+    }
+    ctx.restore();
+
+    // ① 膨胀圆
+    circle(st.c.x, st.c.y, M.rr, COL.expand, 1.4, [6, 5]);
+
+    // ② 扫掠区域（圆头粗线 = 精确胶囊）
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(SX(st.p0.x), SY(st.p0.y));
+    ctx.lineTo(SX(st.p1.x), SY(st.p1.y));
+    ctx.lineCap = "round";
+    ctx.lineWidth = Math.max(2, 2 * st.r * view.s);
+    ctx.strokeStyle = COL.sweep;
+    ctx.stroke();
+    ctx.restore();
+
+    // ③ 线段
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(SX(st.p0.x), SY(st.p0.y));
+    ctx.lineTo(SX(st.p1.x), SY(st.p1.y));
+    ctx.strokeStyle = COL.seg;
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.restore();
+
+    // ④ 舰船本体
+    circle(st.c.x, st.c.y, st.R, COL.target, 2);
+    dot(st.c.x, st.c.y, 3, COL.target);
+
+    // ⑤ 向量
+    arrow(st.c.x, st.c.y, st.p0.x, st.p0.y, "rgba(180,140,255,.85)", 1.4, "f");
+    arrow(st.p0.x, st.p0.y, st.p1.x, st.p1.y, "rgba(127,154,181,.9)", 1.4, "d");
+
+    // ⑥ 进 / 出点
+    if (M.enterPt) {
+      dot(M.enterPt.x, M.enterPt.y, 4, COL.inter, true);
+      dot(M.exitPt.x,  M.exitPt.y,  4, COL.inter, true);
+    }
+
+    // ⑦ 弹丸
+    ctx.save();
+    ctx.globalAlpha = .45;
+    circle(st.p1.x, st.p1.y, st.r, COL.proj, 1.4);
+    ctx.restore();
+    circle(st.p0.x, st.p0.y, st.r, COL.proj, 2);
+
+    // ⑧ 命中点
+    if (M.result === 1 || M.result === 0) {
+      const hx = st.p0.x + M.t * M.dx;
+      const hy = st.p0.y + M.t * M.dy;
+      ctx.save();
+      ctx.setLineDash([3, 3]);
+      circle(hx, hy, st.r, "rgba(95,217,122,.55)", 1.2);
+      ctx.restore();
+      dot(hx, hy, 5, COL.hit, true);
+      tag(SX(hx), SY(hy) - 20, "t = " + M.t.toFixed(3), COL.hit);
+    }
+
+    // ⑨ 手柄
+    dot(st.p1.x, st.p1.y, 6, "rgba(255,194,74,.9)", true);
+    dot(st.p0.x, st.p0.y, 6, "rgba(255,194,74,.9)", true);
+    dot(st.c.x,  st.c.y,  6, "rgba(74,159,224,.95)", true);
+
+    // ⑩ 标签
+    tag(SX(st.c.x),  SY(st.c.y) + Math.max(20, st.R * view.s + 16), "c", COL.target);
+    tag(SX(st.p0.x), SY(st.p0.y) - Math.max(18, st.r * view.s + 14), "p0", COL.proj);
+    tag(SX(st.p1.x), SY(st.p1.y) - Math.max(18, st.r * view.s + 14), "p1", COL.proj);
+
+    ctx.save();
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(SX(st.c.x), SY(st.c.y));
+    ctx.lineTo(SX(st.c.x + M.rr), SY(st.c.y));
+    ctx.strokeStyle = COL.expand;
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.restore();
+    tag(SX(st.c.x + M.rr * 0.55), SY(st.c.y) - 12, "rr = " + M.rr.toFixed(1), COL.expand);
+
+    updatePanel(M);
+  }
+
+  // ------------------------------------------------------------------
+  // 面板 / 正文实时数值 / 分支高亮
+  // ------------------------------------------------------------------
+  const setLive = (key, text) => {
+    document.querySelectorAll('[data-live="' + key + '"]').forEach(el => {
+      el.textContent = text;
+    });
+  };
+  const fx2 = v => (Math.abs(v) < 1e-9 ? "0" : v.toFixed(2));
+  const science = v => {
+    if (Math.abs(v) < 1e-6) return "0";
+    if (Math.abs(v) < 1e5) return v.toFixed(0);
+    return v.toExponential(3);
+  };
+
+  function updatePanel(M) {
+    setLive("rr", M.rr.toFixed(2));
+    setLive("dx", fx2(M.dx));
+    setLive("dy", fx2(M.dy));
+    setLive("fx", fx2(M.fx));
+    setLive("fy", fx2(M.fy));
+    setLive("a",  science(M.a));
+    setLive("b",  science(M.b));
+    setLive("cc", science(M.cc));
+    setLive("disc", science(M.disc));
+    setLive("t0", M.tEnter === null ? "—" : M.tEnter.toFixed(4));
+    setLive("t1", M.tExit  === null ? "—" : M.tExit.toFixed(4));
+
+    const v = document.getElementById("verdict");
+    if (M.result === 1) {
+      v.className = "badge hit";
+      v.textContent = "命中 · 返回 t = " + M.t.toFixed(4);
+    } else if (M.result === 0) {
+      v.className = "badge hit";
+      v.textContent = "帧首已重叠 · 返回 0（t₀ = " +
+        (M.tEnter === null ? "—" : M.tEnter.toFixed(4)) + "，为负但已被截住）";
+    } else {
+      v.className = "badge miss";
+      v.textContent = "未命中 · 返回 -1（" + M.reason + "）";
+    }
+
+    document.querySelectorAll(".branch").forEach(el => {
+      el.classList.toggle("active", el.dataset.branch === M.branch);
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // 交互
+  // ------------------------------------------------------------------
+  let drag = null;
+
+  function pick(mx, my) {
+    const cands = [
+      { key: "p0", x: state.p0.x, y: state.p0.y },
+      { key: "p1", x: state.p1.x, y: state.p1.y },
+      { key: "c",  x: state.c.x,  y: state.c.y  },
+    ];
+    let best = null, bestD = 22;
+    for (const o of cands) {
+      const d = Math.hypot(SX(o.x) - mx, SY(o.y) - my);
+      if (d < bestD) { bestD = d; best = o.key; }
+    }
+    return best;
+  }
+
+  const toWorld = (mx, my) => ({ x: (mx - view.ox) / view.s, y: (my - view.oy) / view.s });
+
+  cv.addEventListener("pointerdown", e => {
+    const r = cv.getBoundingClientRect();
+    drag = pick(e.clientX - r.left, e.clientY - r.top);
+    if (drag) {
+      cv.setPointerCapture(e.pointerId);
+      cv.style.cursor = "grabbing";
+    }
+  });
+
+  cv.addEventListener("pointermove", e => {
+    const r = cv.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+
+    if (!drag) {
+      cv.style.cursor = pick(mx, my) ? "grab" : "crosshair";
+      return;
+    }
+
+    const w = toWorld(mx, my);
+    const t = state[drag];
+    t.x = Math.max(WORLD.x0, Math.min(WORLD.x1, w.x));
+    t.y = Math.max(WORLD.y0, Math.min(WORLD.y1, w.y));
+    if (!e.shiftKey) { t.x = Math.round(t.x * 2) / 2; t.y = Math.round(t.y * 2) / 2; }
+    draw();
+  });
+
+  const stop = () => { drag = null; cv.style.cursor = "crosshair"; };
+  cv.addEventListener("pointerup", stop);
+  cv.addEventListener("pointercancel", stop);
+
+  document.querySelectorAll(".presets button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const p = PRESETS[btn.dataset.preset];
+      state.p0 = { ...p.p0 };
+      state.p1 = { ...p.p1 };
+      state.c  = { ...p.c  };
+      state.r = p.r; state.R = p.R;
+      document.getElementById("s-r").value = p.r;
+      document.getElementById("s-r-v").textContent = p.r.toFixed(1);
+      document.getElementById("s-R").value = p.R;
+      document.getElementById("s-R-v").textContent = String(p.R);
+      draw();
+    });
+  });
+
+  document.getElementById("s-r").addEventListener("input", e => {
+    state.r = parseFloat(e.target.value);
+    document.getElementById("s-r-v").textContent = state.r.toFixed(1);
+    draw();
+  });
+  document.getElementById("s-R").addEventListener("input", e => {
+    state.R = parseFloat(e.target.value);
+    document.getElementById("s-R-v").textContent = String(state.R);
+    draw();
+  });
+
+  window.addEventListener("resize", () => { layout(); draw(); });
+  window.addEventListener("load",   () => { layout(); draw(); });
+
+  layout();
+  draw();
+})();
+</script>
+</body>
+</html>
