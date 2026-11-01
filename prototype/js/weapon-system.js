@@ -37,6 +37,14 @@ const SEC_Y = new Float64Array(GUIDE_SECTORS);
 const CAND = [];
 const ORDER = [];
 
+// 「大半径单位」（基地 / 防御塔）的补丁：
+// 网格按圆心入格，宽相位只按弹丸半径 + UNIT_PAD 去查格，
+// 半径超过 UNIT_PAD 的单位，其圆心可能落在查询范围外、但它的圆仍与射线相交。
+// 这类单位每帧只有个位数，所以每帧重新收集，查询时无重复地补进候选集。
+const BIG = [];
+const BIG_STAMP = new Int32Array(16384);
+let bigGen = 0;
+
 /**
  * 把「潜在命中者」的下标填进 out。
  * - 有 grid 且没开调试 → 走空间索引（宽相位，候选集小）
@@ -50,6 +58,7 @@ function fillCircle(g, x, y, r, units, out) {
     for (let i = 0; i < units.length; i++) out.push(i);
   } else {
     g.queryCircle(x, y, r, out);
+    appendBig(out);
   }
   SpatialStats.queries++;
   SpatialStats.candidates += out.length;
@@ -62,10 +71,24 @@ function fillSegment(g, x0, y0, x1, y1, r, units, out) {
     for (let i = 0; i < units.length; i++) out.push(i);
   } else {
     g.querySegment(x0, y0, x1, y1, r, out);
+    appendBig(out);
   }
   SpatialStats.queries++;
   SpatialStats.candidates += out.length;
   return out;
+}
+
+/** 把大半径单位补进候选集（去重靠时间戳，不额外分配） */
+function appendBig(out) {
+  if (BIG.length === 0) return;
+  bigGen++;
+  for (let i = 0; i < out.length; i++) BIG_STAMP[out[i]] = bigGen;
+  for (let i = 0; i < BIG.length; i++) {
+    const idx = BIG[i];
+    if (idx >= BIG_STAMP.length || BIG_STAMP[idx] === bigGen) continue;
+    BIG_STAMP[idx] = bigGen;
+    out.push(idx);
+  }
 }
 
 const hitROf = o => (o.hitR === undefined ? DEFAULT_HIT_R : o.hitR);
@@ -203,6 +226,12 @@ function fireHitscan(u, w, ux, uy, range, myF, hue, tgt, units, squads, hits, fx
  */
 export function stepWeapons(units, squads, projectiles, dt, hits, now = 0, fx = null, grid = null) {
   const n = units.length;
+
+  // 每帧刷新一次「大半径单位」清单（基地 / 防御塔），供宽相位补漏
+  BIG.length = 0;
+  for (let i = 0; i < n; i++) {
+    if (units[i].hp > 0 && hitROf(units[i]) > UNIT_PAD) BIG.push(i);
+  }
 
   // ---------- 1. 开火 ----------
   for (let i = 0; i < n; i++) {

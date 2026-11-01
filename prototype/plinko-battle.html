@@ -30,6 +30,7 @@ import { drawUnits, drawProjectiles, drawUnitGlyph } from "./js/render-units.js"
 import { Grid, SpatialDebug, SpatialStats } from "./js/spatial.js";
 import { drawFx } from "./js/render-fx.js";
 import { createBoard, stepBoard, drawBoard } from "./js/plinko.js";
+import { drawStation, drawTower as drawTowerArt } from "./js/structures.js";
 import {
   TEMPLATES, LOOSE_SQUAD, BASE_HP, templateDef, templateHue, swatchColor
 } from "./js/templates.js";
@@ -57,8 +58,65 @@ import {
   const STATION_R = 52;       // 基地把单位推开的半径
   const ZOOM = 1.2;           // 战场缩放：> 1 表示单位在屏幕上画得更大（适配手机）
   const FODDER_X = 5;         // 基地散兵产出速度倍率（基准间隔 1.0~1.6s，除以此值）
-  const CATCHUP_GAP = 50;    // 落后多少人口开始追赶
+  const CATCHUP_GAP = 75;    // 落后多少人口开始追赶
   const CATCHUP_MUL = 3;      // 追赶时落球速度倍率
+
+  // ---------- 可调项 ----------
+  const SIDE_NARROW = 1.2;    // 右侧栏收窄倍率（>1 更窄，战场更大）
+  const BTN_W = 138, BTN_H = 26;   // 自动出兵开关的尺寸（贴在侧栏底部）
+
+  /**
+   * 小球下落快慢。1 = 基准速度；<1 更慢，>1 更快。
+   * 只缩放「小球物理」的时间步（重力 / 位移 / 反弹一起变），
+   * 发球口的出球间隔照旧 —— 调它只改观感，不改出兵节奏。
+   * 上一版是 0.70（实测约 1.46× 慢），现在 ×1.5 → 1.05
+   */
+  const PLINKO_SPEED = 0.85;
+
+  // ---------- 防御塔 ----------
+  /**
+   * 塔的所有可调项都在这一个对象里。
+   * weapon 可以填：
+   *   "towermissile"                → 双方都用它
+   *   ["towermissile", "railgun"]   → 蓝方 / 红方 各用各的
+   * 可选值是 js/weapons.js 里 WEAPONS 的任意 id。
+   * 运行中也能改：控制台 window.__TOWER.set(阵营, "railgun") / window.__TOWER.weapon("railgun")
+   */
+  const TOWER_CFG = {
+    hp: 800,                  // 单座血量
+    radius: 15,               // 半径：绘制 / 受击 / 推开单位都用它
+    count: 2,                 // 每边几座
+    dist: 118,                // 距基地中心多远
+    spread: 0.46,             // 两座塔相对「朝敌方」方向各偏多少弧度
+    weapon: "towermissile",   // 塔的武器
+  };
+
+  /** 取某阵营的塔武器 id */
+  function towerWeaponOf(faction) {
+    const w = TOWER_CFG.weapon;
+    return Array.isArray(w) ? (w[faction & 1] || w[0]) : w;
+  }
+
+  /** 换塔的武器（faction 传 null 表示双方一起换），立刻生效 */
+  function setTowerWeapon(id, faction) {
+    if (!id) return false;
+    if (faction === null || faction === undefined) TOWER_CFG.weapon = id;
+    else if (Array.isArray(TOWER_CFG.weapon)) TOWER_CFG.weapon[faction & 1] = id;
+    else TOWER_CFG.weapon = faction === 0 ? [id, TOWER_CFG.weapon] : [TOWER_CFG.weapon, id];
+
+    for (let f = 0; f < 2; f++) {
+      const id2 = squads[towerSquad[f]];
+      if (id2) id2.p.weapon = towerWeaponOf(f);
+    }
+    for (const tw of towers) {
+      if (tw.dead) continue;
+      tw.unit.weapon = towerWeaponOf(tw.faction);
+      tw.unit.cd = 0;                    // 换武器立刻可以开下一发
+      tw.unit.burstLeft = 0;
+    }
+    return true;
+  }
+
 
   // ---------- 状态 ----------
   let squads = [];
@@ -81,8 +139,13 @@ import {
   let pressHit = -1;                        // 刚按下的色标，闪一下
   let pressHitT = 0;
   let legendPop = [];                       // 点色标后的「+N」飘字
+  let autoSpawn = true;                     // 自动出兵（落球机）开关
+  let autoBtn = { x: 0, y: 0, w: 0, h: 0 }; // 底部控制区里那个开关的矩形
+  let hoverBtn = false;
   let flash = { t: 0, bin: -1 };            // 刚落球的槽，闪一下
   let bases = [];
+  let towers = [];                          // 防御塔（双方各 TOWER_CFG.count 座）
+  let towerSquad = [-1, -1];                // 每方所有塔共用的 squad id
   // 固定编制：每方 = 每个模板一个小队 + 一个小队额的散兵
   // 槽位永不增删，所以不需要复用逻辑，也不会有引用串位
   let templateSquads = [[], []];
@@ -93,6 +156,7 @@ import {
     popCount[0] = 0;
     popCount[1] = 0;
     for (const u of units) {
+      if (u.base || u.tower) continue;      // 建筑不算人口
       const sq = squads[u.squad];
       if (sq) popCount[sq.faction]++;
     }
@@ -109,8 +173,8 @@ import {
 
     const GAP = 12;
 
-    // 右侧栏：宽度随窗口自适应
-    const sideW = Math.round(Math.min(520, Math.max(360, W * 0.30)));
+    // 右侧栏：宽度随窗口自适应，再统一收窄 SIDE_NARROW 倍（宽度让给战场）
+    const sideW = Math.round(Math.min(520, Math.max(360, W * 0.30)) / SIDE_NARROW);
     SIDE = { x: W - sideW - GAP, y: GAP, w: sideW, h: H - GAP * 2 };
 
     // 左侧战场：画面尺寸 ÷ ZOOM = 世界尺寸。ZOOM 越大，单位在屏幕上越显眼
@@ -132,14 +196,20 @@ import {
       h: boardH,
       binCount: TEMPLATES.length,
       factions: 2,
-      // 小球下落变慢。0.70 是实测出来的：小球从顶到底的耗时约为原来的 1.46×
-      speedScale: 0.70,
+      speedScale: PLINKO_SPEED,     // 见文件顶部的可调项
     });
 
-    // 侧栏下半：战斗群介绍
+    // 侧栏下半：战斗群介绍。底部留一条给「自动出兵」开关
     legendY = board.y + board.h + 46;
-    legendH = SIDE.y + SIDE.h - legendY - 14;
+    legendH = SIDE.y + SIDE.h - legendY - 14 - (BTN_H + 10);
     LEGEND_LAYOUT = buildLegendLayout();
+
+    // 开关贴在侧栏底部，右对齐
+    autoBtn = {
+      x: SIDE.x + SIDE.w - 16 - BTN_W,
+      y: SIDE.y + SIDE.h - 14 - BTN_H,
+      w: BTN_W, h: BTN_H
+    };
 
     anchorBases();
   }
@@ -159,7 +229,23 @@ import {
       b.x = p.x; b.y = p.y;
       if (b.unit) { b.unit.x = p.x; b.unit.y = p.y; }
     }
+    for (const tw of towers) {
+      const p = towerPos(tw.faction, tw.slot);
+      tw.x = p.x; tw.y = p.y;
+      if (tw.unit) { tw.unit.x = p.x; tw.unit.y = p.y; }
+    }
     updateLooseGoal();            // 窗口变了，战场中心也变了
+  }
+
+  /** 防御塔位置：基地朝敌方那侧，左右各偏一点，两座夹住来路 */
+  function towerPos(faction, slot) {
+    const b = basePos(faction);
+    const dir = faction === 0 ? -Math.PI / 4 : Math.PI * 3 / 4;
+    const a = dir + (slot * 2 - 1) * TOWER_CFG.spread;
+    return {
+      x: Math.max(TOWER_CFG.radius + 8, Math.min(FW - TOWER_CFG.radius - 8, b.x + Math.cos(a) * TOWER_CFG.dist)),
+      y: Math.max(TOWER_CFG.radius + 8, Math.min(FH - TOWER_CFG.radius - 8, b.y + Math.sin(a) * TOWER_CFG.dist))
+    };
   }
 
   // ---------- 基地 ----------
@@ -191,8 +277,58 @@ import {
     };
   }
 
-  /** 每方建立固定编制：N 个模板小队 + 1 个散兵小队 */
-  function buildSquads(faction) {
+  // ---------- 防御塔 ----------
+  /**
+   * 每方 TOWER_CFG.count 座塔。塔是「不动的单位」：走同一套武器/伤害系统，
+   * 只是物理上被钉住、渲染时单独画，并且不进人口统计。
+   * 一个阵营的所有塔共用一个 squad（同一个武器、同一套参数），
+   * 血量仍然是每座独立算的（initCombat 给每个单位各写一份 hp）。
+   */
+  function buildTowers(faction) {
+    const id = addSquad(squads, {
+      key: "tower",
+      hue: faction === 0 ? 205 : 5,
+      sat: 70,
+      weapon: towerWeaponOf(faction),
+      p: {
+        members: 0, hp: TOWER_CFG.hp, regen: 0, chargers: 0,
+        hitR: TOWER_CFG.radius
+      }
+    }, faction);
+    towerSquad[faction] = id;
+
+    const sq = squads[id];
+    for (let slot = 0; slot < TOWER_CFG.count; slot++) {
+      const p = towerPos(faction, slot);
+      const u = {
+        x: p.x, y: p.y, vx: 0, vy: 0,
+        squad: id, alpha: 0, cAll: 0,
+        tower: true,      // 渲染时单独画
+        obstacle: true    // 参与分离，不参与凝聚
+      };
+      units.push(u);
+      initCombat(u, sq, 99);
+
+      towers.push({
+        faction, slot, squadId: id, unit: u,
+        x: p.x, y: p.y,
+        hp: TOWER_CFG.hp, maxHp: TOWER_CFG.hp,
+        dead: false, pulse: Math.random() * 6
+      });
+    }
+  }
+
+  /** 塔的生死与动画计时 */
+  function updateTowers(dt) {
+    for (const tw of towers) {
+      if (tw.dead) continue;
+      tw.pulse += dt;
+      tw.hp = tw.unit.hp;
+      if (tw.hp <= 0) tw.dead = true;
+    }
+  }
+
+  /** 每方建立固定编制：N 个模板小队 + 1 个散兵小队 */  function buildSquads(faction) {
     const ids = [];
     for (const tpl of TEMPLATES) {
       ids.push(addSquad(squads, templateDef(tpl, faction), faction));
@@ -353,6 +489,25 @@ import {
         u.y += dy * k;
       }
     }
+
+    // 防御塔：同样钉住 + 推开
+    for (const tw of towers) {
+      if (tw.dead) continue;
+      const tu = tw.unit;
+      tu.x = tw.x; tu.y = tw.y; tu.vx = 0; tu.vy = 0;
+
+      for (const u of units) {
+        if (u === tu) continue;
+        const dx = u.x - tw.x, dy = u.y - tw.y;
+        const d2 = dx * dx + dy * dy;
+        const TR = TOWER_CFG.radius;
+        if (d2 > TR * TR || d2 < 1e-6) continue;
+        const d = Math.sqrt(d2);
+        const k = ((TR - d) / d) * 0.30;
+        u.x += dx * k;
+        u.y += dy * k;
+      }
+    }
   }
 
   // ---------- 战斗 ----------
@@ -418,6 +573,19 @@ import {
   function pumpPlinko(dt) {
     const ended = S.over >= 0;
 
+    // 手动关掉自动出兵：空中的球立刻清干净，发球口冻结（位置都不再走），
+    // 再打开时从当前状态继续 —— 不做任何补发，避免关一会儿回来炸一堆人
+    if (!autoSpawn) {
+      if (board.balls.length) board.balls.length = 0;
+      for (const hp of board.hoppers) {
+        hp.allow = false;
+        hp.catchup = false;
+        hp.speedMul = 1;
+      }
+      if (flash.t > 0) flash.t -= dt;
+      return;
+    }
+
     for (let f = 0; f < 2; f++) {
       const hp = board.hoppers[f];
       if (!hp) continue;
@@ -449,66 +617,21 @@ import {
     if (flash.t > 0) flash.t -= dt;
   }
 
-  // ---------- 基地绘制 ----------
+  // ---------- 基地 / 防御塔绘制 ----------
+  const BASE_R = 40;          // 空间站的绘制半径（S7 棱堡环港，见 js/structures.js）
+
   function drawBase(b) {
     const hue = b.faction === 0 ? 205 : 5;
-    const R = 34;
-    const alive = !b.dead;
 
     ctx.save();
     ctx.translate(b.x, b.y);
-    if (!alive) ctx.globalAlpha = 0.35;
-
-    // 外环
-    ctx.beginPath();
-    ctx.arc(0, 0, R + 11, 0, Math.PI * 2);
-    ctx.strokeStyle = "hsla(" + hue + ",70%,60%,.22)";
-    ctx.lineWidth = 1.2;
-    ctx.stroke();
-
-    // 四根支撑臂
-    for (let i = 0; i < 4; i++) {
-      const a = i * Math.PI / 2 + Math.PI / 4;
-      ctx.beginPath();
-      ctx.moveTo(Math.cos(a) * (R - 6), Math.sin(a) * (R - 6));
-      ctx.lineTo(Math.cos(a) * (R + 10), Math.sin(a) * (R + 10));
-      ctx.strokeStyle = "hsla(" + hue + ",60%,55%,.55)";
-      ctx.lineWidth = 3.5;
-      ctx.stroke();
-    }
-
-    // 六边形主体
-    ctx.beginPath();
-    for (let i = 0; i < 6; i++) {
-      const a = i * Math.PI / 3 - Math.PI / 6;
-      const px = Math.cos(a) * R, py = Math.sin(a) * R;
-      if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
-    }
-    ctx.closePath();
-    ctx.fillStyle = "hsla(" + hue + ",35%,16%,.96)";
-    ctx.fill();
-    ctx.strokeStyle = "hsla(" + hue + ",72%,58%,.85)";
-    ctx.lineWidth = 1.6;
-    ctx.stroke();
-
-    // 核心
-    if (alive) {
-      const pulse = 0.72 + 0.28 * Math.sin(b.pulse * 2.6);
-      ctx.beginPath();
-      ctx.arc(0, 0, 14 * pulse, 0, Math.PI * 2);
-      ctx.fillStyle = "hsla(" + hue + ",85%,62%,.28)";
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(0, 0, 6.5, 0, Math.PI * 2);
-      ctx.fillStyle = "hsla(" + hue + ",90%,82%,.95)";
-      ctx.fill();
-    }
-
+    if (b.dead) ctx.globalAlpha = 0.35;
+    drawStation(ctx, hue, b.pulse, BASE_R);
     ctx.restore();
 
     // 血条
     const bw = 84, bh = 5;
-    const bx = b.x - bw / 2, by = b.y + R + 20;
+    const bx = b.x - bw / 2, by = b.y + BASE_R + 18;
     const f = Math.max(0, Math.min(1, b.hp / b.maxHp));
 
     ctx.fillStyle = "rgba(6,10,16,.8)";
@@ -524,6 +647,31 @@ import {
     ctx.fillStyle = "rgba(150,175,200,.75)";
     ctx.fillText(Math.max(0, Math.round(b.hp)) + " / " + b.maxHp, b.x, by + 8);
     ctx.restore();
+  }
+
+  /** 防御塔：T3 蜂窝塔（六个发射器，整塔不转） */
+  function drawTower(tw) {
+    const hue = tw.faction === 0 ? 205 : 5;
+
+    ctx.save();
+    ctx.translate(tw.x, tw.y);
+    if (tw.dead) ctx.globalAlpha = 0.32;
+    drawTowerArt(ctx, hue, tw.pulse, TOWER_CFG.radius);
+    ctx.restore();
+
+    if (tw.dead) return;
+
+    // 小血条：只在掉血时出现，免得平时太碎
+    if (tw.hp < tw.maxHp) {
+      const bw = 40, bh = 3.5;
+      const bx = tw.x - bw / 2, by = tw.y + TOWER_CFG.radius + 12;
+      const f = Math.max(0, tw.hp / tw.maxHp);
+      ctx.fillStyle = "rgba(6,10,16,.8)";
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.fillStyle = f > 0.5 ? "hsl(" + hue + ",72%,58%)"
+                    : f > 0.25 ? "#e8c14a" : "#e8564f";
+      ctx.fillRect(bx, by, bw * f, bh);
+    }
   }
 
   // ---------- 渲染 ----------
@@ -547,6 +695,7 @@ import {
     ctx.setLineDash([]);
 
     for (const b of bases) drawBase(b);
+    for (const tw of towers) drawTower(tw);
     drawUnits(ctx, units, squads);
     drawFx(ctx, fx);
     drawProjectiles(ctx, projectiles);
@@ -554,8 +703,72 @@ import {
 
     ctx.restore();
 
+    // 战况一行：屏幕坐标，不吃上面的缩放
+    drawStatLine();
+
     // ---------- 右：侧栏 ----------
     drawSidePanel();
+
+    // ---------- 侧栏底部：自动出兵开关 ----------
+    drawAutoToggle();
+  }
+
+  /**
+   * 自动出兵开关：贴在侧栏最底下，和「战斗群」列表同一根轴线。
+   * 关掉时左边那格换成状态说明，不再另占地方。
+   */
+  function drawAutoToggle() {
+    const b = autoBtn;
+    const on = autoSpawn;
+    const cy = b.y + b.h / 2;
+
+    // 左侧文字：开着讲快捷键，关着讲发生了什么。
+    // 侧栏窄的时候按优先级挑一条放得下的（不能顶到按钮上）
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+    ctx.font = "500 11px 'Microsoft YaHei', system-ui, sans-serif";
+    const room = b.x - 10 - (SIDE.x + 16);
+    const hints = on
+      ? ["空格 暂停  ·  R 重开  ·  A 切自动出兵", "空格 暂停  ·  R 重开", "A 切自动出兵", ""]
+      : ["落球机已停 · 空中的球已清空", "落球机已停", ""];
+    const hint = hints.find(t => ctx.measureText(t).width <= room) || "";
+    ctx.fillStyle = on ? "rgba(74,91,108,.9)" : "rgba(150,170,190,.60)";
+    if (hint) ctx.fillText(hint, SIDE.x + 16, cy);
+
+    // 开关本体
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(b.x, b.y, b.w, b.h, 13);
+    else ctx.rect(b.x, b.y, b.w, b.h);
+    ctx.fillStyle = on
+      ? (hoverBtn ? "rgba(95,168,232,.26)" : "rgba(95,168,232,.16)")
+      : (hoverBtn ? "rgba(140,160,180,.20)" : "rgba(120,140,160,.10)");
+    ctx.fill();
+    ctx.strokeStyle = on ? "rgba(95,168,232,.65)" : "rgba(130,150,170,.40)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // 状态灯
+    const lx = b.x + 15;
+    ctx.beginPath();
+    ctx.arc(lx, cy, 4, 0, Math.PI * 2);
+    ctx.fillStyle = on ? "#5fd39a" : "#5a6b7b";
+    ctx.fill();
+    if (on) {
+      ctx.beginPath();
+      ctx.arc(lx, cy, 7.5, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(95,211,154,.18)";
+      ctx.fill();
+    }
+
+    ctx.textAlign = "left";
+    ctx.font = "600 12px 'Microsoft YaHei', system-ui, sans-serif";
+    ctx.fillStyle = on ? "#dbe6f0" : "#7d8fa1";
+    ctx.fillText("自动出兵", b.x + 27, cy);
+
+    ctx.textAlign = "right";
+    ctx.font = "700 12px 'Microsoft YaHei', system-ui, sans-serif";
+    ctx.fillStyle = on ? "#5fd39a" : "#7d8fa1";
+    ctx.fillText(on ? "开" : "关", b.x + b.w - 13, cy);
   }
 
   /** 右侧栏：上半发球区，下半战斗群介绍 */
@@ -645,12 +858,12 @@ import {
   function sideStats(faction) {
     let n = 0, hp = 0, sq = 0;
     for (const u of units) {
-      if (u.base) continue;
+      if (u.base || u.tower) continue;
       if (squads[u.squad].faction !== faction) continue;
       n++; hp += Math.max(0, u.hp) + u.shield;
     }
     for (const s of squads) {
-      if (s.faction === faction && s.cn > 0 && s.key !== "base") sq++;
+      if (s.faction === faction && s.cn > 0 && s.key !== "base" && s.key !== "tower") sq++;
     }
     return { n, hp: Math.round(hp), squads: sq };
   }
@@ -677,45 +890,73 @@ import {
   }
 
   /**
-   * 竖排的侧栏介绍，三列布局：
-   *   左：蓝/红两套色标 + 名字
-   *   中：防御 / 阵型（折行）
-   *   右：武器
-   * 字号从 14 往下试，直到 6 个战斗群全部塞进下方区域。
+   * 侧栏介绍排版。两种模式：
+   *   宽栏（w ≥ 330）：三列 —— 色标+名字 | 防御/阵型 | 武器
+   *   窄栏（w < 330）：堆叠 —— 第一行「色标 + 名字 …… 武器」，下面几行正文用满整行宽度
+   * 字号从 14（窄栏 12）往下试，直到 6 个战斗群全部塞进下方区域、且不出现孤行。
    */
   function buildLegendLayout() {
     const x0 = SIDE.x + 16;
     const w = SIDE.w - 32;
 
     const NAME_X = 72;                       // 相对 x0 的名字起点（色标占前面）
-    const nameColW = Math.max(150, Math.round(w * 0.40));
-    const weaponColW = 58;                   // 右侧留给武器的宽度
-    const textX = x0 + nameColW;
-    const textW = Math.max(80, w - nameColW - weaponColW);
+    const stacked = w < 330;                 // 窄栏：三列排不开，正文改到名字下面
 
-    let fs = 14;
-    let rows, lh, total;
+    let fs = stacked ? 12 : 14;
+    let rows, lh, total, orphan;
+    let nameColW = w, weaponColW = 0, textX = x0 + 10, textW = w - 10;
 
     for (; fs >= 9; fs--) {
       lh = Math.round(fs * 1.45);
       ctx.save();
       ctx.font = "500 " + fs + "px 'Microsoft YaHei', system-ui, sans-serif";
-      rows = LEGEND.map(it => {
-        const defLines = wrapText(it.info.defense, textW);
-        const fmlLines = wrapText(it.info.formation, textW);
-        const lines = defLines.length + fmlLines.length;
-        return { defLines, fmlLines, lines, h: lines * lh + 10 };
-      });
+
+      if (stacked) {
+        textX = x0 + 10;
+        textW = w - 10;
+        nameColW = w;
+        weaponColW = 0;
+        rows = LEGEND.map(it => {
+          const defLines = wrapText(it.info.defense, textW);
+          const fmlLines = wrapText(it.info.formation, textW);
+          const lines = defLines.length + fmlLines.length;
+          // 名字占一行，正文接在下面
+          return { defLines, fmlLines, lines, h: (1 + lines) * lh + 10 };
+        });
+      } else {
+        // 名字列按最长名字的实测宽度定，否则长名字（游击鱼雷战术群）会压到正文上
+        let maxName = 0;
+        for (const it of LEGEND) maxName = Math.max(maxName, ctx.measureText(it.name).width);
+        nameColW = Math.max(120, Math.round(NAME_X + maxName + 10));
+        weaponColW = Math.max(46, Math.min(58, Math.round(w * 0.16)));
+        textX = x0 + nameColW;
+        textW = Math.max(80, w - nameColW - weaponColW);
+        rows = LEGEND.map(it => {
+          const defLines = wrapText(it.info.defense, textW);
+          const fmlLines = wrapText(it.info.formation, textW);
+          const lines = defLines.length + fmlLines.length;
+          return { defLines, fmlLines, lines, h: lines * lh + 10 };
+        });
+      }
       ctx.restore();
 
       total = rows.reduce((s, r) => s + r.h, 0);
-      if (total <= legendH) break;
+      // 一个折行块的最后一行只剩 1~2 个字，就算孤行
+      orphan = rows.some(r =>
+        [r.defLines, r.fmlLines].some(ls => ls.length > 1 && ls[ls.length - 1].length <= 2)
+      );
+      if (total <= legendH && !orphan) break;
     }
 
     // 富余的高度分给每一行（有上限，免得行距被拉得太散）
-    const gap = Math.min(22, Math.max(0, (legendH - total) / rows.length));
+    const gap = Math.min(stacked ? 16 : 22, Math.max(0, (legendH - total) / rows.length));
     let y = legendY;
-    for (const r of rows) { r.y = y; y += r.h + gap; }
+    for (const r of rows) {
+      r.y = y;
+      r.nameCy = stacked ? y + 5 + lh / 2 : y + r.h / 2;
+      r.infoY0 = y + 5 + lh * 1.5;
+      y += r.h + gap;
+    }
 
     // 色标 = 按钮。两个色标相距 30px，分界线取 29：
     // 蓝标定在 x0+14、红标定在 x0+44，各自留下约 14px 的富余
@@ -729,7 +970,7 @@ import {
       );
     }
 
-    return { x0, w, nameColW, weaponColW, textX, textW, nameX: x0 + NAME_X, fs, lh, rows, gap, markSplit: MARK_SPLIT };
+    return { x0, w, nameColW, weaponColW, textX, textW, nameX: x0 + NAME_X, fs, lh, rows, gap, markSplit: MARK_SPLIT, stacked };
   }
 
   /** 三个小箭头摆成三角阵型，代表一个战斗群（尺寸与战场上的单位一致） */
@@ -749,7 +990,7 @@ import {
     for (let i = 0; i < LEGEND.length; i++) {
       const it = LEGEND[i];
       const r = L.rows[i];
-      const cy = r.y + r.h / 2;
+      const cy = r.nameCy;                 // 色标 / 名字所在的那一行
 
       // 行分隔
       if (i > 0) {
@@ -771,9 +1012,15 @@ import {
       drawSquadMark(L.x0 + 14, cy, swatchColor(it.hueB));
       drawSquadMark(L.x0 + 44, cy, swatchColor(it.hueR));
 
+      // 名字：先量一下右边武器要占多宽，名字不许顶上去
+      ctx.font = "500 " + L.fs + "px 'Microsoft YaHei', system-ui, sans-serif";
+      const weaponW = ctx.measureText(it.info.weapon).width + 14;
+      const maxNameW = L.stacked
+        ? (L.x0 + L.w - weaponW) - L.nameX
+        : L.nameColW - 78;
+
       let nfs = L.fs + 1;
       ctx.font = "600 " + nfs + "px 'Microsoft YaHei', system-ui, sans-serif";
-      const maxNameW = L.nameColW - 78;
       while (nfs > 9 && ctx.measureText(it.name).width > maxNameW) {
         nfs--;
         ctx.font = "600 " + nfs + "px 'Microsoft YaHei', system-ui, sans-serif";
@@ -788,13 +1035,22 @@ import {
       ctx.fillText(it.info.weapon, L.x0 + L.w, cy);
       ctx.textAlign = "left";
 
-      // ---- 中列：防御 / 阵型，整块垂直居中 ----
+      // ---- 中列：防御 / 阵型 ----
       ctx.font = "500 " + L.fs + "px 'Microsoft YaHei', system-ui, sans-serif";
-      let ty = cy - (r.lines - 1) * L.lh / 2;
-      ctx.fillStyle = "#93a9bf";
-      for (const line of r.defLines) { ctx.fillText(line, L.textX, ty); ty += L.lh; }
-      ctx.fillStyle = "#7f95ab";
-      for (const line of r.fmlLines) { ctx.fillText(line, L.textX, ty); ty += L.lh; }
+      if (L.stacked) {
+        // 窄栏：正文从名字下面开始，用满整行宽度
+        let ty = r.infoY0;
+        ctx.fillStyle = "#93a9bf";
+        for (const line of r.defLines) { ctx.fillText(line, L.textX, ty); ty += L.lh; }
+        ctx.fillStyle = "#7f95ab";
+        for (const line of r.fmlLines) { ctx.fillText(line, L.textX, ty); ty += L.lh; }
+      } else {
+        let ty = cy - (r.lines - 1) * L.lh / 2;
+        ctx.fillStyle = "#93a9bf";
+        for (const line of r.defLines) { ctx.fillText(line, L.textX, ty); ty += L.lh; }
+        ctx.fillStyle = "#7f95ab";
+        for (const line of r.fmlLines) { ctx.fillText(line, L.textX, ty); ty += L.lh; }
+      }
     }
 
     // 点色标后的「+N」飘字
@@ -842,8 +1098,15 @@ import {
     }
   }
 
-  function drawHud() {
-    const y = H - 32;
+  /**
+   * 战场底部的战况一行。
+   * 注意：这里用【屏幕坐标】，画在战场矩形里但不吃 ZOOM 变换，
+   * 否则 H - 32 这种屏幕高度写进世界坐标会被推到屏幕外面去。
+   */
+  function drawStatLine() {
+    const y = H - 30;                        // 战场下沿往上一点
+    const x0 = FX + 10, x1 = FX + FW * ZOOM - 10;
+
     ctx.save();
     ctx.textBaseline = "middle";
 
@@ -855,46 +1118,48 @@ import {
     ctx.textAlign = "left";
     ctx.font = "600 12px 'Segoe UI', system-ui, sans-serif";
     ctx.fillStyle = "#5fa8e8";
-    ctx.fillText("蓝方", 16, y);
+    ctx.fillText("蓝方", x0, y);
     ctx.font = "500 11px 'Segoe UI', system-ui, sans-serif";
     ctx.fillStyle = ca ? "#e8c14a" : "#8ba4bb";
     ctx.fillText(
       "队伍 " + a.squads + "  ·  单位 " + a.n + "/" + POP_CAP + (ca ? " · 追赶中" : "") +
       "  ·  血量 " + a.hp +
       (ba ? "  ·  基地 " + Math.max(0, Math.round(ba.hp)) : ""),
-      58, y
+      x0 + 42, y
     );
 
     ctx.textAlign = "right";
     ctx.font = "600 12px 'Segoe UI', system-ui, sans-serif";
     ctx.fillStyle = "#e8614f";
-    ctx.fillText("红方", FW - 16, y);
+    ctx.fillText("红方", x1, y);
     ctx.font = "500 11px 'Segoe UI', system-ui, sans-serif";
     ctx.fillStyle = cb ? "#e8c14a" : "#8ba4bb";
     ctx.fillText(
       (bb ? "基地 " + Math.max(0, Math.round(bb.hp)) + "  ·  " : "") +
       "血量 " + b.hp + "  ·  单位 " + b.n + "/" + POP_CAP + (cb ? " · 追赶中" : "") +
       "  ·  队伍 " + b.squads,
-      FW - 58, y
+      x1 - 42, y
     );
 
     ctx.textAlign = "center";
     ctx.font = "500 11px 'Segoe UI', system-ui, sans-serif";
     ctx.fillStyle = (popCount[0] >= POP_CAP || popCount[1] >= POP_CAP) ? "#e8c14a" : "#5c7386";
-    ctx.fillText("总单位 " + units.length, FW / 2, y);
+    ctx.fillText("总单位 " + units.length, (x0 + x1) / 2, y);
 
+    ctx.restore();
+  }
+
+  /** 胜负 / 暂停的居中提示（战场坐标，跟着 ZOOM 走） */
+  function drawHud() {
+    ctx.save();
     ctx.textBaseline = "middle";
     ctx.textAlign = "center";
-    ctx.font = "500 10.5px 'Segoe UI', system-ui, sans-serif";
-    ctx.fillStyle = "#3f4f60";
-    ctx.fillText("空格 暂停   ·   R 重开", FW / 2, FH - 12);
 
     if (S.over >= 0) {
       // S.over 记的是【胜利方】，所以被摧毁的是另一方
       const winner = S.over === 0 ? "蓝方" : "红方";
       const loser = S.over === 0 ? "红方" : "蓝方";
 
-      ctx.textAlign = "center";
       ctx.font = "700 34px 'Segoe UI', system-ui, sans-serif";
       ctx.fillStyle = S.over === 0 ? "rgba(95,168,232,.9)" : "rgba(232,97,79,.9)";
       ctx.fillText(winner + "胜利", FW / 2, FH / 2 - 26);
@@ -919,6 +1184,7 @@ import {
     const k = e.key.toLowerCase();
     if (k === " ") { S.paused = !S.paused; e.preventDefault(); }
     else if (k === "r") reset();
+    else if (k === "a") toggleAutoSpawn();     // A = 自动出兵开关
   });
 
   // 注：点击【落球机槽位】直接出兵的功能仍然没有（双方共用一块板，
@@ -929,20 +1195,39 @@ import {
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
 
+  function inRect(x, y, r) {
+    return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+  }
+
+  /** 自动出兵开关：关掉的一瞬间清空空中的球，发球口冻结；打开就接着走 */
+  function toggleAutoSpawn() {
+    autoSpawn = !autoSpawn;
+    if (!autoSpawn && board) {
+      board.balls.length = 0;
+      for (const hp of board.hoppers) { hp.allow = false; hp.catchup = false; hp.speedMul = 1; }
+    }
+  }
+
   cvs.addEventListener("pointermove", e => {
     const p = canvasXY(e);
-    const k = hitLegendMark(p.x, p.y);
+    hoverBtn = inRect(p.x, p.y, autoBtn);
+    const k = hoverBtn ? -1 : hitLegendMark(p.x, p.y);
     hoverHit = k;
-    cvs.style.cursor = k >= 0 ? "pointer" : "default";
+    cvs.style.cursor = (hoverBtn || k >= 0) ? "pointer" : "default";
   });
 
   cvs.addEventListener("pointerleave", () => {
     hoverHit = -1;
+    hoverBtn = false;
     cvs.style.cursor = "default";
   });
 
   cvs.addEventListener("pointerdown", e => {
     const p = canvasXY(e);
+
+    // 底部控制区优先
+    if (inRect(p.x, p.y, autoBtn)) { toggleAutoSpawn(); return; }
+
     const k = hitLegendMark(p.x, p.y);
     if (k < 0) return;
     const hb = legendHit[k];
@@ -969,12 +1254,15 @@ import {
     hits.length = 0;
     combatT = 0;
     bases = [];
+    towers = [];
+    towerSquad = [-1, -1];
     templateSquads = [[], []];
     looseSquad = [-1, -1];
     flash = { t: 0, bin: -1 };
     legendPop = [];
     hoverHit = -1;
     pressHit = -1;
+    autoSpawn = true;
     S.over = -1;
     S.paused = false;
 
@@ -982,6 +1270,8 @@ import {
     buildSquads(0);               // 每方固定 N+1 个小队
     buildSquads(1);
     bases = [makeBase(0), makeBase(1)];
+    buildTowers(0);               // 每方 TOWER_CFG.count 座防御塔
+    buildTowers(1);
     anchorBases();
     updateLooseGoal();            // 散兵小队：指向战场中心
   }
@@ -1005,6 +1295,7 @@ import {
         physics(FIXED);
         combat(FIXED);
         updateBases(FIXED);
+        updateTowers(FIXED);
         acc -= FIXED;
       }
       if (acc > FIXED) acc = 0;
@@ -1023,6 +1314,18 @@ import {
   window.__S = S;
   window.__BOARDS = () => board;
   window.__BASES = () => bases;
+
+  // 防御塔配置：改字段即时生效
+  //   __TOWER.weapon("railgun")     双方一起换
+  //   __TOWER.set(1, "chaingun")    只给红方换
+  //   __TOWER.cfg.hp = 1200         改血量（下一局生效，或手动改 unit.hp）
+  window.__TOWER = {
+    cfg: TOWER_CFG,
+    list: () => towers,
+    weapon: id => setTowerWeapon(id, null),
+    set: (faction, id) => setTowerWeapon(id, faction),
+    now: () => towers.map(t => towerWeaponOf(t.faction)),
+  };
 
   // 空间索引：__SPATIAL.debug.brute = true 可切回全量扫描，用于差分对比
   window.__SPATIAL = {

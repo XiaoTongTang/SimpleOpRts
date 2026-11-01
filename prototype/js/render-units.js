@@ -43,13 +43,13 @@ export function drawUnitGlyph(ctx, x, y, angle, scale, color) {
 export function drawUnits(ctx, units, squads) {
   // 本体
   for (const u of units) {
-    if (u.base) continue;              // 基地由调用方单独绘制
+    if (u.base || u.tower) continue;    // 基地 / 防御塔由调用方单独绘制
     drawUnitGlyph(ctx, u.x, u.y, Math.atan2(u.vy, u.vx), 1, unitColor(u, squads));
   }
 
   // 护盾环 + 充能器标记 + 血条
   for (const u of units) {
-    if (u.base) continue;
+    if (u.base || u.tower) continue;
     if (u.shield > 0) {
       ctx.beginPath();
       ctx.arc(u.x, u.y, 8.6, 0, Math.PI * 2);

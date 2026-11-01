@@ -74,7 +74,7 @@ export const WEAPONS = {
     name: "突击链炮",
     delivery: "projectile",
     // 射程 = 800 × 0.5 = 400
-    travel: { speed: 600, lifetime: 0.5 },
+    travel: { speed: 700, lifetime: 0.5 },
     hit:    { contactR: 4, maxHits: 1 },
     impact: { dmg: 20, blastR: 0, blastDmg: 0, pierceShield: false },
     // 一轮 4 发，一发一发地打，间隔 0.12s（整轮 0.36s）
@@ -83,6 +83,20 @@ export const WEAPONS = {
     fire:   { cd: 2.0, burst: 4, burstDelay: 0.12, fan: 3, energy: 0 },
     fx:     "muzzle",
     trail:  "streak",                            // 线形射弹（细亮线），命中有泛白闪光
+  },
+
+  towermissile: {
+    id: "towermissile",
+    name: "防御塔用导弹",
+    delivery: "projectile",
+    // 射程 = 240 × 2 = 480，与普通导弹完全一致
+    travel: { speed: 240, lifetime: 2, turnRate: 2.5, guideR: 180 },
+    hit:    { contactR: 10, maxHits: 1 },
+    impact: { dmg: 40, blastR: 24, blastDmg: 24, pierceShield: false },
+    // 与普通导弹唯一的区别：装填只要 1 秒
+    fire:   { cd: 1.0, burst: 4, burstDelay: 0.12, fan: 20, energy: 0 },
+    fx:     "muzzle",
+    trail:  "line",
   },
 };
 

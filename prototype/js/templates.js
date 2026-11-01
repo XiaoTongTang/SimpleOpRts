@@ -43,7 +43,7 @@ export const TEMPLATES = [
       rRep: 30, rOri: 58, rAtt: 200,
       wSep: 1.40, wAli: 0.70, wCoh: 0.7,
       r4: 60, r5: 280, wSeek: 1.60, wThreat: 1.70,
-      members: 12, hp: 170, regen: 1, chargers: 10
+      members: 12, hp: 290, regen: 7, chargers: 12
     }
   },
   {
@@ -86,15 +86,15 @@ export const TEMPLATES = [
     hue: [262, 37],
     info: {
       weapon: "突击链炮",
-      defense: "240血,6每秒回血,5护盾充能器",
+      defense: "300血,6每秒回血,5护盾充能器",
       formation: "10人口,等距阵列,缓慢推进"
     },
     p: {
       // 极厚极慢：高凝聚 + 高威胁，贴近就被推开，很难被切开
-      rRep: 32, rOri: 60, rAtt: 104,
-      wSep: 1.15, wAli: 0.50, wCoh: 1.45,
+      rRep: 35, rOri: 60, rAtt: 104,
+      wSep: 1.05, wAli: 0.50, wCoh: 1.45,
       r4: 55, r5: 270, wSeek: 1.00, wThreat: 2.00,
-      members: 10, hp: 300, regen: 6, chargers: 5
+      members: 15, hp: 320, regen: 9, chargers: 5
     }
   },
   {

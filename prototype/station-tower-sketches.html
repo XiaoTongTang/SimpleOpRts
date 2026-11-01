@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>空间站 / 防御塔 备选绘制</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #07090d; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    color: #c9d6e4; padding: 26px 30px 60px;
+  }
+  header { display: flex; align-items: flex-end; gap: 18px; flex-wrap: wrap; margin-bottom: 8px; }
+  h1 { font-size: 19px; font-weight: 600; letter-spacing: .4px; }
+  h1 small { font-weight: 400; font-size: 12px; color: #5c7386; margin-left: 10px; }
+  .tools { margin-left: auto; display: flex; gap: 8px; }
+  button {
+    background: rgba(95,168,232,.10); color: #a8c4dd;
+    border: 1px solid rgba(95,168,232,.35); border-radius: 14px;
+    padding: 6px 14px; font-size: 12px; cursor: pointer;
+    font-family: inherit;
+  }
+  button:hover { background: rgba(95,168,232,.20); color: #dceaf6; }
+  button.on { background: rgba(95,168,232,.28); color: #e8f2fb; border-color: rgba(95,168,232,.75); }
+  h2 {
+    font-size: 13px; font-weight: 600; color: rgba(150,190,225,.8);
+    margin: 30px 0 12px; letter-spacing: 1px;
+  }
+  h2 span { color: #4a5b6c; font-weight: 400; letter-spacing: 0; margin-left: 10px; font-size: 11.5px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 14px; }
+  .card {
+    background: rgba(10,15,22,.72);
+    border: 1px solid rgba(80,120,160,.18);
+    border-radius: 10px; padding: 6px 6px 9px;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .card:hover { border-color: rgba(95,168,232,.45); }
+  .card.pick { border-color: rgba(95,168,232,.9); box-shadow: 0 0 0 1px rgba(95,168,232,.35) inset; }
+  .card canvas { display: block; width: 460px; height: 260px; }
+  .cap { font-size: 11.5px; color: #7f95ab; padding: 2px 8px 0; line-height: 1.55; }
+  .cap b { color: #cfe0ef; font-weight: 600; margin-right: 6px; }
+  .cap i { font-style: normal; color: #5c7386; }
+  .note { font-size: 11.5px; color: #4a5b6c; margin-top: 14px; line-height: 1.7; }
+  .note b { color: #7f95ab; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>空间站 / 防御塔 · 备选绘制<small>蓝 205° · 红 5° · 均为俯视</small></h1>
+  <div class="tools">
+    <button id="btnScale">实际大小</button>
+    <button id="btnPause">暂停动画</button>
+  </div>
+</header>
+
+<h2>空间站 <span>基地，游戏中半径 34px</span></h2>
+<div class="grid" id="stations"></div>
+
+<h2>防御塔 <span>固定式，不做旋转炮塔；参考半径 20px</span></h2>
+<div class="grid" id="towers"></div>
+
+<p class="note">
+  <b>怎么选：</b>点卡片任意位置可以标记（点一下高亮），然后跟我说「空间站用 S3、防御塔用 T2」就行。<br>
+  <b>两套颜色：</b>同一张卡片里左边是蓝方、右边是红方，<b>形状完全一致，只换色相</b> —— 保证双方对称。<br>
+  <b>动画：</b>只有「扫描环 / 缺口环」这类装饰在缓慢转，主体和武器一个都不转。
+</p>
+
+<script>
+"use strict";
+
+const TAU = Math.PI * 2;
+const BLUE = 205, RED = 5;
+
+/* ---------- 颜色 / 几何小工具 ---------- */
+const hsl = (h, l, a = 1, s = 72) => `hsla(${h},${s}%,${l}%,${a})`;
+
+function roundPoly(g, n, r, cut, rot = -Math.PI / 2) {
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const a = rot + i * TAU / n;
+    pts.push([Math.cos(a) * r, Math.sin(a) * r]);
+  }
+  const unit = (x, y) => { const d = Math.hypot(x, y) || 1; return [x / d, y / d]; };
+  g.beginPath();
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[(i + n - 1) % n], p1 = pts[i], p2 = pts[(i + 1) % n];
+    const v0 = unit(p0[0] - p1[0], p0[1] - p1[1]);
+    const v2 = unit(p2[0] - p1[0], p2[1] - p1[1]);
+    const ax = p1[0] + v0[0] * cut, ay = p1[1] + v0[1] * cut;
+    const bx = p1[0] + v2[0] * cut, by = p1[1] + v2[1] * cut;
+    if (i === 0) g.moveTo(ax, ay); else g.lineTo(ax, ay);
+    g.quadraticCurveTo(p1[0], p1[1], bx, by);
+  }
+  g.closePath();
+}
+
+/** 从内到外发光的圆点 */
+function glowDot(g, x, y, r, hue, a = 1) {
+  const gr = g.createRadialGradient(x, y, 0, x, y, r);
+  gr.addColorStop(0, hsl(hue, 90, Math.min(1, .95 * a)));
+  gr.addColorStop(.40, hsl(hue, 72, .30 * a));
+  gr.addColorStop(1, hsl(hue, 60, 0));
+  g.fillStyle = gr;
+  g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
+}
+
+function dashRing(g, r, w, color, dash, gap, off = 0) {
+  g.save();
+  g.strokeStyle = color; g.lineWidth = w;
+  g.setLineDash([dash, gap]); g.lineDashOffset = off;
+  g.beginPath(); g.arc(0, 0, r, 0, TAU); g.stroke();
+  g.restore();
+}
+
+function arcStroke(g, r, a0, a1, w, color) {
+  g.save();
+  g.strokeStyle = color; g.lineWidth = w;
+  g.beginPath(); g.arc(0, 0, r, a0, a1); g.stroke();
+  g.restore();
+}
+
+/** 金属壳体：上亮下暗的线性渐变 + 亮边描线 */
+function hullGrad(g, r, hue, lit = .35, dark = .12) {
+  const gr = g.createLinearGradient(-r, -r, r * .8, r);
+  gr.addColorStop(0, hsl(hue, lit * 100, .96, 40));
+  gr.addColorStop(.55, hsl(hue, lit * 72, .97, 34));
+  gr.addColorStop(1, hsl(hue, dark * 100, .98, 38));
+  return gr;
+}
+
+/* =================================================================
+   空间站
+   ================================================================= */
+
+/** S1 棱堡六角：切角六边壳 + 三条停靠臂 + 扫描环 */
+function S1(g, hue, t, R) {
+  dashRing(g, R * 1.02, R * .028, hsl(hue, 55, .16, 60), R * .10, R * .13, -t * R * .12);
+
+  for (let i = 0; i < 3; i++) {
+    g.save();
+    g.rotate(-Math.PI / 2 + i * TAU / 3 + t * .05);
+    // 臂
+    g.fillStyle = hsl(hue, 20, .90, 38);
+    g.beginPath(); g.rect(R * .50, -R * .095, R * .42, R * .19); g.fill();
+    g.strokeStyle = hsl(hue, 68, .48); g.lineWidth = R * .022; g.stroke();
+    // 港口
+    g.fillStyle = hsl(hue, 26, .97);
+    g.beginPath(); g.rect(R * .88, -R * .20, R * .17, R * .40); g.fill();
+    g.strokeStyle = hsl(hue, 68, .55);
+    g.beginPath(); g.rect(R * .88, -R * .20, R * .17, R * .40); g.stroke();
+    // 港口灯
+    g.fillStyle = hsl(hue, 92, .85 + .15 * Math.sin(t * 3 + i));
+    g.beginPath(); g.arc(R * .965, 0, R * .032, 0, TAU); g.fill();
+    g.restore();
+  }
+
+  hexCore(g, hue, t, R);
+}
+
+/** S1 / S7 共用的六边内核 */
+function hexCore(g, hue, t, R) {
+  const r = R * .62;
+  roundPoly(g, 6, r, r * .20);
+  g.fillStyle = hullGrad(g, r, hue); g.fill();
+  g.strokeStyle = hsl(hue, 76, .88); g.lineWidth = R * .045; g.stroke();
+
+  roundPoly(g, 6, r * .76, r * .18);
+  g.strokeStyle = hsl(hue, 70, .28); g.lineWidth = R * .026; g.stroke();
+
+  // 三条内肋
+  for (let i = 0; i < 3; i++) {
+    const a = -Math.PI / 2 + i * TAU / 3;
+    g.strokeStyle = hsl(hue, 65, .20); g.lineWidth = R * .022;
+    g.beginPath();
+    g.moveTo(Math.cos(a) * r * .30, Math.sin(a) * r * .30);
+    g.lineTo(Math.cos(a) * r * .74, Math.sin(a) * r * .74);
+    g.stroke();
+  }
+
+  glowDot(g, 0, 0, R * .38, hue, .85 + .15 * Math.sin(t * 2.4));
+  g.fillStyle = hsl(hue, 94, .34);
+  g.beginPath(); g.arc(0, 0, R * .11, 0, TAU); g.fill();
+}
+
+/** S7 棱堡环港：S1 的六边内核 + 外港环（缓慢转） + 三条悬臂与方形港（跟着环一起转） */
+function S7(g, hue, t, R) {
+  // ---- 外港环 + 三条悬臂 + 三个方形港：整组一起慢速旋转 ----
+  g.save();
+  g.rotate(t * .10);
+
+  const rr = R * .94, w = R * .17;
+  arcStroke(g, rr, 0, TAU, w, hsl(hue, 22, .96, 42));
+  arcStroke(g, rr, 0, TAU, w * .84, hsl(hue, 16, .99, 40));
+  arcStroke(g, rr - w * .5, 0, TAU, w * .07, hsl(hue, 74, .62));
+  arcStroke(g, rr + w * .5, 0, TAU, w * .07, hsl(hue, 74, .45));
+
+  // 环上的分节刻线
+  for (let i = 0; i < 30; i++) {
+    const a = i * TAU / 30;
+    g.strokeStyle = hsl(hue, 60, .16); g.lineWidth = R * .018;
+    g.beginPath();
+    g.moveTo(Math.cos(a) * (rr - w * .46), Math.sin(a) * (rr - w * .46));
+    g.lineTo(Math.cos(a) * (rr + w * .46), Math.sin(a) * (rr + w * .46));
+    g.stroke();
+  }
+
+  // 三条悬臂 + 方形港，样式和 S1 完全一致（只是坐在环上）
+  for (let i = 0; i < 3; i++) {
+    g.save();
+    g.rotate(-Math.PI / 2 + i * TAU / 3);
+
+    // 悬臂
+    g.fillStyle = hsl(hue, 20, .90, 38);
+    g.beginPath(); g.rect(R * .50, -R * .095, R * .42, R * .19); g.fill();
+    g.strokeStyle = hsl(hue, 68, .48); g.lineWidth = R * .022; g.stroke();
+
+    // 方形港
+    g.fillStyle = hsl(hue, 26, .97);
+    g.beginPath(); g.rect(R * .88, -R * .20, R * .17, R * .40); g.fill();
+    g.strokeStyle = hsl(hue, 68, .55);
+    g.beginPath(); g.rect(R * .88, -R * .20, R * .17, R * .40); g.stroke();
+
+    // 港口灯
+    g.fillStyle = hsl(hue, 92, .85 + .15 * Math.sin(t * 3 + i));
+    g.beginPath(); g.arc(R * .965, 0, R * .032, 0, TAU); g.fill();
+    g.restore();
+  }
+  g.restore();
+
+  // ---- 内核：唯一不动的部分 ----
+  hexCore(g, hue, t, R);
+}
+
+/** S2 环形港：粗环 + 两处缺口港 + 四条支撑 */
+function S2(g, hue, t, R) {
+  g.save();
+  g.rotate(t * .04);
+
+  const rr = R * .86, w = R * .21;
+  // 壳体（缺口在 4 点 和 10 点）
+  const gaps = [[-0.30, 0.30], [Math.PI - 0.34, Math.PI + 0.34]];
+  const segs = [[gaps[0][1], gaps[1][0]], [gaps[1][1], gaps[0][0] + TAU]];
+
+  for (const [a0, a1] of segs) {
+    arcStroke(g, rr, a0, a1, w, hsl(hue, 22, .96, 42));
+    arcStroke(g, rr, a0, a1, w * .84, hsl(hue, 16, .99, 40));
+    arcStroke(g, rr - w * .5, a0, a1, w * .07, hsl(hue, 74, .62));
+    arcStroke(g, rr + w * .5, a0, a1, w * .07, hsl(hue, 74, .45));
+  }
+  // 环上的分节刻线
+  for (let i = 0; i < 24; i++) {
+    const a = i * TAU / 24;
+    if (a > gaps[0][0] - .1 && a < gaps[0][1] + .1) continue;
+    if (a > gaps[1][0] - .1 && a < gaps[1][1] + .1) continue;
+    g.strokeStyle = hsl(hue, 60, .16); g.lineWidth = R * .02;
+    g.beginPath();
+    g.moveTo(Math.cos(a) * (rr - w * .46), Math.sin(a) * (rr - w * .46));
+    g.lineTo(Math.cos(a) * (rr + w * .46), Math.sin(a) * (rr + w * .46));
+    g.stroke();
+  }
+  g.restore();
+
+  // 两处停靠港（不跟着转）
+  for (let k = 0; k < 2; k++) {
+    const a = k ? Math.PI : 0;
+    g.save();
+    g.rotate(a);
+    g.fillStyle = hsl(hue, 30, .95, 44);
+    g.beginPath(); g.rect(R * .58, -R * .20, R * .40, R * .40); g.fill();
+    g.strokeStyle = hsl(hue, 76, .80); g.lineWidth = R * .035;
+    g.beginPath(); g.rect(R * .58, -R * .20, R * .40, R * .40); g.stroke();
+    g.fillStyle = hsl(hue, 90, .70);
+    g.beginPath(); g.arc(R * .74, -R * .06, R * .045, 0, TAU); g.fill();
+    g.beginPath(); g.arc(R * .74, R * .06, R * .045, 0, TAU); g.fill();
+    g.restore();
+  }
+
+  // 四条支撑
+  for (let i = 0; i < 4; i++) {
+    const a = Math.PI / 4 + i * TAU / 4;
+    g.strokeStyle = hsl(hue, 55, .40); g.lineWidth = R * .05;
+    g.beginPath();
+    g.moveTo(Math.cos(a) * R * .30, Math.sin(a) * R * .30);
+    g.lineTo(Math.cos(a) * (rr - w * .4), Math.sin(a) * (rr - w * .4));
+    g.stroke();
+  }
+
+  // 中枢
+  roundPoly(g, 8, R * .30, R * .07);
+  g.fillStyle = hullGrad(g, R * .30, hue); g.fill();
+  g.strokeStyle = hsl(hue, 78, .85); g.lineWidth = R * .04; g.stroke();
+  glowDot(g, 0, 0, R * .30, hue, .8 + .2 * Math.sin(t * 2.2));
+  g.fillStyle = hsl(hue, 94, .30);
+  g.beginPath(); g.arc(0, 0, R * .085, 0, TAU); g.fill();
+}
+
+/** S3 双月台：两块月牙背靠背 + 中央脊柱 + 三根横肋 */
+function S3(g, hue, t, R) {
+  const rr = R * .66, w = R * .34;
+  const tipX = Math.cos(Math.PI * .16) * rr;      // 月牙端点，横肋就停在这里
+
+  for (const s of [-1, 1]) {
+    const cy = s * R * .05;
+    const a0 = s < 0 ? -Math.PI * .84 : Math.PI * .16;
+    const a1 = s < 0 ? -Math.PI * .16 : Math.PI * .84;
+    arcStroke(g, rr, a0, a1, w, hsl(hue, 24, .96, 44));
+    arcStroke(g, rr, a0, a1, w * .80, hsl(hue, 16, .99, 40));
+    arcStroke(g, rr - w * .52, a0, a1, w * .09, hsl(hue, 76, .60));
+  }
+
+  // 脊柱
+  g.fillStyle = hsl(hue, 26, .96, 40);
+  g.beginPath(); g.rect(-R * .085, -R * .86, R * .17, R * 1.72); g.fill();
+  g.strokeStyle = hsl(hue, 74, .75); g.lineWidth = R * .028;
+  g.beginPath(); g.rect(-R * .085, -R * .86, R * .17, R * 1.72); g.stroke();
+
+  // 三根横肋：只跨中间那道缝，不戳出壳体
+  for (let i = -1; i <= 1; i++) {
+    const y = i * R * .30;
+    g.strokeStyle = hsl(hue, 62, .34); g.lineWidth = R * .035;
+    g.beginPath(); g.moveTo(-tipX, y); g.lineTo(tipX, y); g.stroke();
+  }
+
+  // 两端舰桥
+  for (const s of [-1, 1]) {
+    g.fillStyle = hsl(hue, 32, .95, 46);
+    g.beginPath(); g.arc(0, s * R * .88, R * .11, 0, TAU); g.fill();
+    g.strokeStyle = hsl(hue, 80, .82); g.lineWidth = R * .035; g.stroke();
+  }
+
+  glowDot(g, 0, 0, R * .34, hue, .85 + .15 * Math.sin(t * 2.6));
+  g.fillStyle = hsl(hue, 94, .34);
+  g.beginPath(); g.arc(0, 0, R * .10, 0, TAU); g.fill();
+}
+
+/** S4 四瓣花：四个圆瓣 + 内三角（缓慢转） */
+function S4(g, hue, t, R) {
+  const rr = R * .52;
+  for (let i = 0; i < 4; i++) {
+    g.save();
+    g.rotate(i * TAU / 4 + Math.PI / 4);
+    // 瓣
+    g.beginPath(); g.ellipse(R * .52, 0, R * .46, R * .26, 0, 0, TAU);
+    g.fillStyle = hullGrad(g, R * .46, hue); g.fill();
+    g.strokeStyle = hsl(hue, 76, .85); g.lineWidth = R * .042; g.stroke();
+    // 瓣上的两道散热槽
+    for (const v of [-1, 1]) {
+      g.strokeStyle = hsl(hue, 60, .22); g.lineWidth = R * .028;
+      g.beginPath();
+      g.moveTo(R * .34, v * R * .10);
+      g.lineTo(R * .64, v * R * .10);
+      g.stroke();
+    }
+    g.restore();
+  }
+
+  // 花瓣之间的凹槽灯
+  for (let i = 0; i < 4; i++) {
+    const a = i * TAU / 4;
+    g.fillStyle = hsl(hue, 90, .70 + .2 * Math.sin(t * 3 + i));
+    g.beginPath(); g.arc(Math.cos(a) * R * .80, Math.sin(a) * R * .80, R * .040, 0, TAU); g.fill();
+  }
+
+  // 中枢
+  roundPoly(g, 4, R * .34, R * .10, Math.PI / 4);
+  g.fillStyle = hullGrad(g, R * .34, hue); g.fill();
+  g.strokeStyle = hsl(hue, 80, .88); g.lineWidth = R * .042; g.stroke();
+
+  // 内三角（唯一在转的东西）
+  g.save();
+  g.rotate(t * .5);
+  roundPoly(g, 3, R * .19, R * .03);
+  g.strokeStyle = hsl(hue, 88, .55, 80); g.lineWidth = R * .03; g.stroke();
+  g.restore();
+
+  glowDot(g, 0, 0, R * .30, hue, .80 + .20 * Math.sin(t * 2.2));
+}
+
+/** S5 三角母舰：切角三角壳 + 尾部机库凹口 + 两侧吊舱 */
+function S5(g, hue, t, R) {
+  // 外圈角标
+  for (let i = 0; i < 3; i++) {
+    const a = -Math.PI / 2 + i * TAU / 3;
+    g.save();
+    g.rotate(a);
+    g.fillStyle = hsl(hue, 60, .18);
+    g.beginPath(); g.rect(R * .90, -R * .05, R * .10, R * .10); g.fill();
+    g.restore();
+  }
+
+  // 三角壳
+  roundPoly(g, 3, R * .96, R * .20);
+  g.fillStyle = hullGrad(g, R * .96, hue); g.fill();
+  g.strokeStyle = hsl(hue, 78, .86); g.lineWidth = R * .048; g.stroke();
+
+  // 内三角
+  roundPoly(g, 3, R * .66, R * .16);
+  g.strokeStyle = hsl(hue, 68, .26); g.lineWidth = R * .028; g.stroke();
+
+  // 尾部机库凹口（指向 -x，也就是自己基地那一侧）
+  g.fillStyle = hsl(hue, 30, .99);
+  g.beginPath();
+  g.moveTo(-R * .96, -R * .30);
+  g.lineTo(-R * .52, -R * .17);
+  g.lineTo(-R * .52, R * .17);
+  g.lineTo(-R * .96, R * .30);
+  g.closePath();
+  g.fillStyle = "#060a10"; g.fill();
+  g.strokeStyle = hsl(hue, 70, .55); g.lineWidth = R * .028; g.stroke();
+
+  // 两条侧吊舱
+  for (const s of [-1, 1]) {
+    g.save();
+    g.rotate(s * Math.PI / 2.6);
+    g.fillStyle = hsl(hue, 24, .92, 44);
+    g.beginPath(); g.ellipse(R * .58, 0, R * .17, R * .085, 0, 0, TAU); g.fill();
+    g.strokeStyle = hsl(hue, 72, .62); g.lineWidth = R * .026; g.stroke();
+    g.restore();
+  }
+
+  // 三条棱上的航行灯
+  for (let i = 0; i < 3; i++) {
+    const a = -Math.PI / 2 + i * TAU / 3 + TAU / 6;
+    const f = .72 + .05 * Math.sin(t * 2 + i * 1.7);
+    g.fillStyle = hsl(hue, 92, .62, .9);
+    g.beginPath(); g.arc(Math.cos(a) * R * f, Math.sin(a) * R * f, R * .045, 0, TAU); g.fill();
+  }
+
+  glowDot(g, 0, 0, R * .40, hue, .85 + .15 * Math.sin(t * 2.4));
+  g.fillStyle = hsl(hue, 94, .34);
+  g.beginPath(); g.arc(0, 0, R * .105, 0, TAU); g.fill();
+}
+
+/** S6 堡垒八边：八边壳 + 四个角堡 + 周圈齿 + 十字梁 */
+function S6(g, hue, t, R) {
+  // 周圈齿（缓慢转）
+  g.save();
+  g.rotate(-t * .06);
+  for (let i = 0; i < 28; i++) {
+    const a = i * TAU / 28;
+    g.strokeStyle = hsl(hue, 58, .16); g.lineWidth = R * .022;
+    g.beginPath();
+    g.moveTo(Math.cos(a) * R * .92, Math.sin(a) * R * .92);
+    g.lineTo(Math.cos(a) * R * 1.04, Math.sin(a) * R * 1.04);
+    g.stroke();
+  }
+  g.restore();
+
+  // 四个角堡：放在壳体外面，不然全被盖住
+  for (let i = 0; i < 4; i++) {
+    g.save();
+    g.rotate(Math.PI / 4 + i * TAU / 4);
+    g.fillStyle = hsl(hue, 26, .95, 42);
+    g.beginPath(); g.rect(R * .70, -R * .17, R * .34, R * .34); g.fill();
+    g.strokeStyle = hsl(hue, 74, .72); g.lineWidth = R * .032; g.stroke();
+    g.fillStyle = hsl(hue, 90, .66);
+    g.beginPath(); g.arc(R * .87, 0, R * .05, 0, TAU); g.fill();
+    g.restore();
+  }
+
+  // 八边壳
+  roundPoly(g, 8, R * .70, R * .13);
+  g.fillStyle = hullGrad(g, R * .70, hue); g.fill();
+  g.strokeStyle = hsl(hue, 78, .88); g.lineWidth = R * .046; g.stroke();
+
+  // 十字梁
+  g.strokeStyle = hsl(hue, 64, .24); g.lineWidth = R * .07;
+  g.beginPath();
+  g.moveTo(-R * .64, 0); g.lineTo(R * .64, 0);
+  g.moveTo(0, -R * .64); g.lineTo(0, R * .64);
+  g.stroke();
+
+  // 内八边
+  roundPoly(g, 8, R * .36, R * .07);
+  g.fillStyle = hsl(hue, 30, .96, 46); g.fill();
+  g.strokeStyle = hsl(hue, 80, .82); g.lineWidth = R * .036; g.stroke();
+
+  glowDot(g, 0, 0, R * .32, hue, .85 + .15 * Math.sin(t * 2.8));
+  g.fillStyle = hsl(hue, 94, .32);
+  g.beginPath(); g.arc(0, 0, R * .085, 0, TAU); g.fill();
+}
+
+/* =================================================================
+   防御塔（R ≈ 20）
+   ================================================================= */
+
+/** T1 聚能柱：菱形台基 + 三层台阶 + 中央聚能柱 */
+function T1(g, hue, t, R) {
+  // 台基
+  roundPoly(g, 4, R * 1.10, R * .10, Math.PI / 4);
+  g.fillStyle = hsl(hue, 20, .96, 40); g.fill();
+  g.strokeStyle = hsl(hue, 66, .60); g.lineWidth = R * .07; g.stroke();
+
+  // 四角螺柱
+  for (let i = 0; i < 4; i++) {
+    g.save(); g.rotate(Math.PI / 4 + i * TAU / 4);
+    g.fillStyle = hsl(hue, 52, .42);
+    g.beginPath(); g.arc(R * .84, 0, R * .07, 0, TAU); g.fill();
+    g.restore();
+  }
+
+  // 台面
+  roundPoly(g, 4, R * .66, R * .08, Math.PI / 4);
+  g.fillStyle = hullGrad(g, R * .66, hue); g.fill();
+  g.strokeStyle = hsl(hue, 74, .78); g.lineWidth = R * .06; g.stroke();
+
+  // 柱体
+  roundPoly(g, 8, R * .34, R * .05);
+  g.fillStyle = hsl(hue, 34, .96, 50); g.fill();
+  g.strokeStyle = hsl(hue, 82, .80); g.lineWidth = R * .055; g.stroke();
+
+  // 柱上的竖向能量缝
+  for (const v of [-1, 1]) {
+    g.strokeStyle = hsl(hue, 92, .55 + .25 * Math.sin(t * 3 + v));
+    g.lineWidth = R * .05;
+    g.beginPath(); g.moveTo(v * R * .14, -R * .20); g.lineTo(v * R * .14, R * .20); g.stroke();
+  }
+
+  glowDot(g, 0, 0, R * .52, hue, .9 + .1 * Math.sin(t * 3.2));
+  g.fillStyle = hsl(hue, 96, .5);
+  g.beginPath(); g.arc(0, 0, R * .09, 0, TAU); g.fill();
+}
+
+/** T2 三叶哨戒：三片扇形基座 + 三根固定的炮塔基座钢筋 + 中心旋转三角 */
+function T2(g, hue, t, R) {
+  roundPoly(g, 3, R * 1.02, R * .18);
+  g.fillStyle = hsl(hue, 18, .97, 36); g.fill();
+  g.strokeStyle = hsl(hue, 62, .55); g.lineWidth = R * .06; g.stroke();
+
+  for (let i = 0; i < 3; i++) {
+    g.save();
+    g.rotate(-Math.PI / 2 + i * TAU / 3);
+    // 扇叶
+    roundPoly(g, 3, R * .82, R * .12);
+    g.fillStyle = hullGrad(g, R * .82, hue); g.fill();
+    g.strokeStyle = hsl(hue, 74, .72); g.lineWidth = R * .055; g.stroke();
+    // 炮塔基座钢筋：固定，不转
+    g.fillStyle = hsl(hue, 30, .92, 44);
+    g.beginPath(); g.rect(R * .52, -R * .085, R * .52, R * .17); g.fill();
+    g.strokeStyle = hsl(hue, 70, .60); g.lineWidth = R * .04; g.stroke();
+    // 钢筋端头
+    g.fillStyle = hsl(hue, 92, .58 + .22 * Math.sin(t * 2.5 + i));
+    g.beginPath(); g.arc(R * 1.04, 0, R * .055, 0, TAU); g.fill();
+    g.restore();
+  }
+
+  // 中心三角：整个塔唯一在转的部分
+  g.save();
+  g.rotate(t * .5);
+  roundPoly(g, 3, R * .36, R * .06);
+  g.fillStyle = hullGrad(g, R * .36, hue); g.fill();
+  g.strokeStyle = hsl(hue, 82, .86); g.lineWidth = R * .05; g.stroke();
+  // 三角三个角上的灯，跟着一起转
+  for (let i = 0; i < 3; i++) {
+    const a = -Math.PI / 2 + i * TAU / 3;
+    g.fillStyle = hsl(hue, 94, .62 + .22 * Math.sin(t * 3 + i));
+    g.beginPath();
+    g.arc(Math.cos(a) * R * .24, Math.sin(a) * R * .24, R * .045, 0, TAU);
+    g.fill();
+  }
+  g.restore();
+
+  glowDot(g, 0, 0, R * .30, hue, .85 + .15 * Math.sin(t * 2.6));
+}
+
+/** T3 蜂窝塔：六边壳 + 六个顶点发射器 */
+function T3(g, hue, t, R) {
+  roundPoly(g, 6, R * 1.08, R * .16);
+  g.fillStyle = hsl(hue, 20, .97, 38); g.fill();
+  g.strokeStyle = hsl(hue, 68, .62); g.lineWidth = R * .06; g.stroke();
+
+  // 六个发射器
+  for (let i = 0; i < 6; i++) {
+    const a = -Math.PI / 2 + i * TAU / 6;
+    const x = Math.cos(a) * R * .92, y = Math.sin(a) * R * .92;
+    g.save(); g.translate(x, y); g.rotate(a);
+    g.fillStyle = hsl(hue, 34, .94, 50);
+    g.beginPath(); g.rect(-R * .10, -R * .10, R * .22, R * .20); g.fill();
+    g.strokeStyle = hsl(hue, 78, .70); g.lineWidth = R * .035; g.stroke();
+    g.fillStyle = hsl(hue, 94, .55 + .25 * Math.sin(t * 3 + i * 1.1));
+    g.beginPath(); g.arc(R * .13, 0, R * .05, 0, TAU); g.fill();
+    g.restore();
+  }
+
+  // 内六边
+  roundPoly(g, 6, R * .58, R * .10);
+  g.fillStyle = hullGrad(g, R * .58, hue); g.fill();
+  g.strokeStyle = hsl(hue, 82, .84); g.lineWidth = R * .05; g.stroke();
+
+  // 中心竖井
+  glowDot(g, 0, 0, R * .42, hue, .9 + .1 * Math.sin(t * 2.4));
+  g.fillStyle = hsl(hue, 96, .44);
+  g.beginPath(); g.arc(0, 0, R * .10, 0, TAU); g.fill();
+}
+
+/** T4 尖塔：立起来的菱形 + 发光中缝 + 两片侧鳍 */
+function T4(g, hue, t, R) {
+  // 底座
+  roundPoly(g, 4, R * .92, R * .08, Math.PI / 4);
+  g.fillStyle = hsl(hue, 18, .97, 36); g.fill();
+  g.strokeStyle = hsl(hue, 64, .55); g.lineWidth = R * .055; g.stroke();
+
+  // 侧鳍
+  for (const s of [-1, 1]) {
+    g.save(); g.rotate(s * .9);
+    g.fillStyle = hsl(hue, 26, .92, 42);
+    g.beginPath();
+    g.moveTo(R * .30, 0); g.lineTo(R * .78, -R * .20); g.lineTo(R * .78, R * .06);
+    g.closePath(); g.fill();
+    g.strokeStyle = hsl(hue, 70, .58); g.lineWidth = R * .03; g.stroke();
+    g.restore();
+  }
+
+  // 菱形塔身
+  g.beginPath();
+  g.moveTo(0, -R * 1.02);
+  g.lineTo(R * .40, 0);
+  g.lineTo(0, R * .72);
+  g.lineTo(-R * .40, 0);
+  g.closePath();
+  const gr = g.createLinearGradient(0, -R, 0, R * .7);
+  gr.addColorStop(0, hsl(hue, 42, .96, 52));
+  gr.addColorStop(1, hsl(hue, 14, .98, 34));
+  g.fillStyle = gr; g.fill();
+  g.strokeStyle = hsl(hue, 82, .86); g.lineWidth = R * .05; g.stroke();
+
+  // 中缝
+  g.strokeStyle = hsl(hue, 94, .62 + .2 * Math.sin(t * 3.4));
+  g.lineWidth = R * .05;
+  g.beginPath(); g.moveTo(0, -R * .92); g.lineTo(0, R * .62); g.stroke();
+
+  // 顶部光点
+  glowDot(g, 0, -R * .96, R * .34, hue, .9);
+}
+
+/** T5 环形阵：环形台 + 四段固定护盾弧 + 中央透镜 */
+function T5(g, hue, t, R) {
+  // 台基
+  g.beginPath(); g.arc(0, 0, R * 1.04, 0, TAU);
+  g.fillStyle = hsl(hue, 18, .97, 34); g.fill();
+  g.strokeStyle = hsl(hue, 60, .50); g.lineWidth = R * .05; g.stroke();
+
+  // 四段护盾弧（固定）
+  for (let i = 0; i < 4; i++) {
+    const a0 = i * TAU / 4 + .28, a1 = (i + 1) * TAU / 4 - .28;
+    arcStroke(g, R * .84, a0, a1, R * .16, hsl(hue, 34, .94, 48));
+    arcStroke(g, R * .84, a0, a1, R * .05, hsl(hue, 88, .58, .55));
+  }
+
+  // 四条锚栓
+  for (let i = 0; i < 4; i++) {
+    const a = Math.PI / 4 + i * TAU / 4;
+    g.fillStyle = hsl(hue, 44, .55);
+    g.beginPath(); g.arc(Math.cos(a) * R * .62, Math.sin(a) * R * .62, R * .07, 0, TAU); g.fill();
+  }
+
+  // 中央透镜
+  g.beginPath(); g.arc(0, 0, R * .40, 0, TAU);
+  g.fillStyle = hullGrad(g, R * .40, hue); g.fill();
+  g.strokeStyle = hsl(hue, 84, .84); g.lineWidth = R * .05; g.stroke();
+
+  glowDot(g, 0, 0, R * .46, hue, .9 + .1 * Math.sin(t * 2.8));
+  g.fillStyle = hsl(hue, 96, .46);
+  g.beginPath(); g.arc(0, 0, R * .115, 0, TAU); g.fill();
+}
+
+/** T6 方尖塔：三层递减方台 + 顶部透镜 + 侧面竖肋 */
+function T6(g, hue, t, R) {
+  const tiers = [
+    { r: 1.06, cut: .10, rot: Math.PI / 4 },
+    { r: .78, cut: .07, rot: Math.PI / 4 },
+    { r: .52, cut: .05, rot: Math.PI / 4 }
+  ];
+  for (let i = 0; i < tiers.length; i++) {
+    const tf = tiers[i];
+    roundPoly(g, 4, R * tf.r, R * tf.cut, tf.rot);
+    g.fillStyle = i === 0 ? hsl(hue, 18, .97, 36) : hullGrad(g, R * tf.r, hue);
+    g.fill();
+    g.strokeStyle = i === 0 ? hsl(hue, 60, .52) : hsl(hue, 78, .76);
+    g.lineWidth = R * (i === 0 ? .055 : .045);
+    g.stroke();
+  }
+
+  // 侧面竖肋（每层四条短缝）
+  for (const v of [-1, 1]) {
+    for (const w of [-1, 1]) {
+      g.strokeStyle = hsl(hue, 80, .40);
+      g.lineWidth = R * .04;
+      g.beginPath();
+      g.moveTo(v * R * .40, w * R * .40);
+      g.lineTo(v * R * .72, w * R * .72);
+      g.stroke();
+    }
+  }
+
+  // 顶部透镜
+  g.beginPath(); g.arc(0, 0, R * .26, 0, TAU);
+  g.fillStyle = hsl(hue, 40, .96, 55); g.fill();
+  g.strokeStyle = hsl(hue, 86, .86); g.lineWidth = R * .045; g.stroke();
+  glowDot(g, 0, 0, R * .40, hue, .9 + .1 * Math.sin(t * 3));
+  g.fillStyle = hsl(hue, 96, .48);
+  g.beginPath(); g.arc(0, 0, R * .09, 0, TAU); g.fill();
+}
+
+/* =================================================================
+   卡片渲染
+   ================================================================= */
+const CW = 460, CH = 260, DPR = Math.min(2, window.devicePixelRatio || 1);
+const CELL = 230;
+const cards = [];
+let paused = false, actualSize = false, t = 0;
+
+const STATIONS = [
+  ["S1", "棱堡六角", "切角六边壳 + 三条停靠臂 + 虚线扫描环", S1],
+  ["S2", "环形港", "粗环留两处缺口做港口，四条支撑收进中枢", S2],
+  ["S3", "双月台", "两块月牙背靠背，中央脊柱串三根横肋", S3],
+  ["S4", "四瓣花", "四个圆瓣 + 只转内三角，最省笔墨的一版", S4],
+  ["S5", "三角母舰", "切角三角壳，尾部有朝己方的机库凹口", S5],
+  ["S6", "堡垒八边", "八边壳 + 四个角堡 + 周圈齿环", S6],
+  ["S7", "棱堡环港", "S1 的六边内核固定，外港环 + 三条悬臂 + 三个方形港一起缓慢旋转", S7]
+];
+
+const TOWERS = [
+  ["T1", "聚能柱", "菱形台基三步收分，柱身两道能量缝", T1],
+  ["T2", "三叶哨戒", "三片扇叶 + 三根固定的炮塔基座钢筋，中心三角在转", T2],
+  ["T3", "蜂窝塔", "六边壳，六个顶点各一个发射器", T3],
+  ["T4", "尖塔", "立起来的菱形 + 发光中缝 + 两片侧鳍", T4],
+  ["T5", "环形阵", "四段固定护盾弧，中间是透镜", T5],
+  ["T6", "方尖塔", "三层递减方台，顶部透镜最多", T6]
+];
+
+function makeCard(host, id, name, note, fn, R, isStation) {
+  const card = document.createElement("div");
+  card.className = "card";
+  const cvs = document.createElement("canvas");
+  cvs.width = CW * DPR; cvs.height = CH * DPR;
+  const cap = document.createElement("div");
+  cap.className = "cap";
+  cap.innerHTML = `<b>${id}</b>${name}<br><i>${note}</i>`;
+  card.appendChild(cvs); card.appendChild(cap);
+  card.addEventListener("click", () => card.classList.toggle("pick"));
+  host.appendChild(card);
+  cards.push({ cvs, g: cvs.getContext("2d"), fn, R, isStation });
+}
+
+function drawCell(c, hue, cx, cy) {
+  const g = c.g;
+  const k = actualSize ? 1 : (c.isStation ? 2.15 : 3.4);
+  g.save();
+  g.translate(cx, cy);
+  g.scale(k, k);
+  c.fn(g, hue, t, c.R);
+  // 血条只在「实际大小」下画：放大时它会顶到下面的方阵名
+  if (c.isStation && actualSize) {
+    const bw = 84, bh = 5, by = c.R + 20;
+    g.fillStyle = "rgba(6,10,16,.8)";
+    g.fillRect(-bw / 2, by, bw, bh);
+    g.fillStyle = hsl(hue, 60);
+    g.fillRect(-bw / 2, by, bw * .86, bh);
+  }
+  g.restore();
+}
+
+function renderCard(c) {
+  const g = c.g;
+  g.setTransform(DPR, 0, 0, DPR, 0, 0);
+  g.clearRect(0, 0, CW, CH);
+
+  // 两格背景
+  for (let i = 0; i < 2; i++) {
+    g.fillStyle = "rgba(255,255,255,.015)";
+    g.fillRect(i * CELL + 6, 6, CELL - 12, CH - 40);
+  }
+
+  const cy = c.isStation ? CH * .47 : CH * .46;
+  drawCell(c, BLUE, CELL * .5, cy);
+  drawCell(c, RED, CELL * 1.5, cy);
+
+  g.font = "500 11px 'Segoe UI', system-ui, sans-serif";
+  g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillStyle = "#4f7fb0"; g.fillText("蓝方", CELL * .5, CH - 18);
+  g.fillStyle = "#a8554b"; g.fillText("红方", CELL * 1.5, CH - 18);
+
+  if (actualSize) {
+    g.textAlign = "left";
+    g.fillStyle = "#3d4c5b";
+    g.font = "500 10px 'Segoe UI', system-ui, sans-serif";
+    g.fillText("R = " + c.R + "px · 世界尺寸（屏幕 ×1.2）", 12, 16);
+  }
+}
+
+function frame(now) {
+  const dt = last ? Math.min(.05, (now - last) / 1000) : 0;
+  last = now;
+  if (!paused) t += dt;
+  for (const c of cards) renderCard(c);
+  requestAnimationFrame(frame);
+}
+let last = 0;
+
+/* ---------- 初始化 ---------- */
+for (const [id, name, note, fn] of STATIONS) {
+  makeCard(document.getElementById("stations"), id, name, note, fn, 34, true);
+}
+for (const [id, name, note, fn] of TOWERS) {
+  makeCard(document.getElementById("towers"), id, name, note, fn, 20, false);
+}
+
+document.getElementById("btnScale").addEventListener("click", e => {
+  actualSize = !actualSize;
+  e.currentTarget.classList.toggle("on", actualSize);
+});
+document.getElementById("btnPause").addEventListener("click", e => {
+  paused = !paused;
+  e.currentTarget.classList.toggle("on", paused);
+});
+
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
