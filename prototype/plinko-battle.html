@@ -73,6 +73,7 @@ import {
   let LEGEND_H = 64;
   let LEGEND_LAYOUT = null;
   let flash = [{ t: 0, bin: -1 }, { t: 0, bin: -1 }];
+  let hover = [-1, -1];         // 鼠标悬停在哪个槽（可点击出兵）
   let bases = [];
   // 固定编制：每方 = 每个模板一个小队 + 一个小队额的散兵
   // 槽位永不增删，所以不需要复用逻辑，也不会有引用串位
@@ -263,6 +264,35 @@ import {
     popCount[faction] += n;
     sq.cn += n;
     return id;
+  }
+
+  // ---------- 点击槽位直接出兵 ----------
+  /** 屏幕坐标 → { side, bin }；不在任何槽上返回 null */
+  function binHitTest(mx, my) {
+    for (let side = 0; side < boards.length; side++) {
+      const b = boards[side];
+      const by = b.y + b.h - 32;         // 与 drawBoard 里的槽高一致
+      if (my < by || my > by + 32) continue;
+      for (let i = 0; i < b.bins.length; i++) {
+        const bin = b.bins[i];
+        if (mx >= bin.x0 + 1.5 && mx <= bin.x1 - 1.5) return { side, bin: i };
+      }
+    }
+    return null;
+  }
+
+  /** 点一下就出一整队；已结束或人口放不下就不响应 */
+  function clickSpawn(side, bin) {
+    if (S.over >= 0) return false;
+    const tpl = TEMPLATES[bin];
+    if (!tpl) return false;
+    const need = Math.max(1, Math.floor(tpl.p.members || 1));
+    if (popCount[side] + need > POP_CAP) return false;
+
+    spawnBatch(bin, side);
+    flash[side].t = 0.45;
+    flash[side].bin = bin;
+    return true;
   }
 
   // ---------- 物理 ----------
@@ -491,7 +521,7 @@ import {
     // 落球机盖在最上层
     for (let side = 0; side < 2; side++) {
       const hi = flash[side].t > 0 ? flash[side].bin : -1;
-      drawBoard(ctx, boards[side], BIN_LABELS, BIN_COLORS[side], hi);
+      drawBoard(ctx, boards[side], BIN_LABELS, BIN_COLORS[side], hi, hover[side]);
     }
 
     // 发球区底部的小队介绍
@@ -683,8 +713,8 @@ import {
 
     ctx.textAlign = "center";
     ctx.font = "500 11px 'Segoe UI', system-ui, sans-serif";
-    ctx.fillStyle = (popCount[0] >= POP_CAP || popCount[1] >= POP_CAP) ? "#e8c14a" : "#4a5d70";
-    ctx.fillText("总单位 " + units.length, W / 2, y);
+    ctx.fillStyle = (popCount[0] >= POP_CAP || popCount[1] >= POP_CAP) ? "#e8c14a" : "#5c7386";
+    ctx.fillText("总单位 " + units.length + "   ·   点击战斗群名字直接出兵", W / 2, y);
 
     ctx.textBaseline = "middle";
     ctx.textAlign = "center";
@@ -724,6 +754,28 @@ import {
     else if (k === "r") reset();
   });
 
+  // ---------- 鼠标：底部槽位（战斗群名字）可点击出兵 ----------
+  cvs.addEventListener("mousemove", e => {
+    const r = cvs.getBoundingClientRect();
+    const hit = binHitTest(e.clientX - r.left, e.clientY - r.top);
+    hover = [
+      hit && hit.side === 0 ? hit.bin : -1,
+      hit && hit.side === 1 ? hit.bin : -1,
+    ];
+    cvs.style.cursor = hit ? "pointer" : "default";
+  });
+
+  cvs.addEventListener("mouseleave", () => {
+    hover = [-1, -1];
+    cvs.style.cursor = "default";
+  });
+
+  cvs.addEventListener("click", e => {
+    const r = cvs.getBoundingClientRect();
+    const hit = binHitTest(e.clientX - r.left, e.clientY - r.top);
+    if (hit) clickSpawn(hit.side, hit.bin);
+  });
+
   function reset() {
     squads = [];
     units = [];
@@ -735,6 +787,7 @@ import {
     templateSquads = [[], []];
     looseSquad = [-1, -1];
     flash = [{ t: 0, bin: -1 }, { t: 0, bin: -1 }];
+    hover = [-1, -1];
     S.over = -1;
     S.paused = false;
 

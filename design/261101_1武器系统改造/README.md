@@ -71,7 +71,7 @@
 - [x] **P0a 空间索引**：`js/spatial.js`（`Grid` + `sweptHit`），已接入 `stepWeapons`
 - [x] **P0b `u.hitR` + 飞行中碰撞**：鱼雷碰到敌人立刻起爆（行为有变，见 `04` §2.7）
 - [ ] P0c 渲染 scale 跟 `hitR`（纯视觉，不影响任何判定）
-- [x] **P1 武器参数表去枚举化**：`js/weapons.js`（数据）+ `stepWeapons` 重写；`ray` → `railgun`（最多打 3 个）
+- [x] **P1 武器参数表去枚举化**：`js/weapons.js`（数据）+ `stepWeapons` 重写；`ray` → `railgun`（最多打 3 个）；新增 `missile` 追踪导弹 + 线状拖尾 + 游隼导弹战斗群；新增 `chaingun` 突击链炮（一轮 4 发、每发间隔 0.12s、3° 扇形）
 - [ ] P2 `shieldMul` 取代 `pierceShield` 布尔
 - [ ] P3 `u.angle`（纯视觉，可选）
 

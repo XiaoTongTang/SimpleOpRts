@@ -24,6 +24,15 @@ const RAY_AIM = 0.06;    // 先展示瞄准线
 const RAY_FLY = 0.11;    // 再射出拖尾小方块
 const RAY_HOLD = 0.10;   // 飞完后的余晖
 
+// 导弹拖尾保留多少个位置采样（14 点 ≈ 0.23 秒的航迹，尾迹更短更利落）
+const TRAIL_PTS = 14;
+
+// 制导扇区数：把制导范围切成这么多个角度扇区，取敌人最多的那个
+const GUIDE_SECTORS = 12;
+const SEC_W = new Float64Array(GUIDE_SECTORS);   // 每个扇区的权重和
+const SEC_X = new Float64Array(GUIDE_SECTORS);   // 扇区内敌人的方向向量和
+const SEC_Y = new Float64Array(GUIDE_SECTORS);
+
 // 复用的临时数组：每秒上千次查询，不能每次 new
 const CAND = [];
 const ORDER = [];
@@ -60,6 +69,69 @@ function fillSegment(g, x0, y0, x1, y1, r, units, out) {
 }
 
 const hitROf = o => (o.hitR === undefined ? DEFAULT_HIT_R : o.hitR);
+
+/**
+ * 确定性扇形：第 i 发（共 n 发）在 fanRad 宽度内均匀铺开。
+ * n = 1 或 fan = 0 时居中（偏移 0），所以不散射的武器行为完全不变。
+ * n = 4, fan = 3° → -1.5° / -0.5° / +0.5° / +1.5°
+ */
+function spreadOffset(i, n, fanRad) {
+  if (n <= 1 || fanRad === 0) return 0;
+  return (i / (n - 1) - 0.5) * fanRad;
+}
+
+/**
+ * 制导方向：不锁定任何具体目标，只看「制导范围内敌人最密集的方向」。
+ *
+ * 做法：把范围切成 GUIDE_SECTORS 个角度扇区，统计每个扇区的敌人数，
+ * 取最密的那一个，再用该扇区内敌人的平均方向作为目标角。
+ *
+ * 为什么不用「加权质心」：两个敌群分居左右时，质心会落在中间的**空档**，
+ * 导弹会从两坨人中间穿过去。按扇区取最密的那一个才不会。
+ *
+ * @returns {number|null} 目标角度（弧度）；范围内没有敌人时返回 null（保持当前航向）
+ */
+function guideAngle(p, units, squads, grid) {
+  const R = p.guideR;
+  if (!(R > 0)) return null;
+
+  const R2 = R * R;
+  for (let i = 0; i < GUIDE_SECTORS; i++) {
+    SEC_W[i] = 0; SEC_X[i] = 0; SEC_Y[i] = 0;
+  }
+
+  fillCircle(grid, p.x, p.y, R + UNIT_PAD, units, CAND);
+
+  const k = GUIDE_SECTORS / (Math.PI * 2);
+  for (let c = 0; c < CAND.length; c++) {
+    const o = units[CAND[c]];
+    if (o.hp <= 0) continue;
+    if (squads[o.squad].faction === p.faction) continue;
+
+    const dx = o.x - p.x, dy = o.y - p.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 > R2 || d2 < 1e-6) continue;
+
+    const d = Math.sqrt(d2);
+    // 权重：近的略重（0.6 ~ 1.0）。这样一坨人总能压过单独一个近处的。
+    const w = 1 - 0.4 * (d / R);
+
+    let s = ((Math.atan2(dy, dx) + Math.PI) * k) | 0;
+    if (s < 0) s = 0; else if (s >= GUIDE_SECTORS) s = GUIDE_SECTORS - 1;
+
+    SEC_W[s] += w;
+    SEC_X[s] += dx / d;
+    SEC_Y[s] += dy / d;
+  }
+
+  let best = -1, bestW = 0;
+  for (let i = 0; i < GUIDE_SECTORS; i++) {
+    if (SEC_W[i] > bestW) { bestW = SEC_W[i]; best = i; }
+  }
+  if (best < 0) return null;
+
+  return Math.atan2(SEC_Y[best], SEC_X[best]);   // 该扇区内的平均方向
+}
 
 /**
  * 瞬时武器（激光 / 轨道炮）
@@ -136,44 +208,72 @@ export function stepWeapons(units, squads, projectiles, dt, hits, now = 0, fx = 
   for (let i = 0; i < n; i++) {
     const u = units[i];
     if (u.hp <= 0) continue;
-    if (u.cd > 0) { u.cd -= dt; continue; }
 
     const w = WEAPONS[u.weapon];
     if (!w) continue;
+
     const myF = squads[u.squad].faction;
     const hue = squads[u.squad].hue;
     const range = weaponRange(w);
+    const shots = w.fire.burst > 0 ? (w.fire.burst | 0) : 1;
 
-    // 锁定射程内最近的敌人
-    // （保持全量扫描：每帧只发生几次，见 05-空间索引层.md §5.5）
-    let tgt = null, bd = range * range;
-    for (let j = 0; j < n; j++) {
-      const o = units[j];
-      if (o.hp <= 0) continue;
-      if (squads[o.squad].faction === myF) continue;
-      const dx = o.x - u.x, dy = o.y - u.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < bd) { bd = d2; tgt = o; }
+    // ---- 决定这一帧要不要开一枪，以及打谁 ----
+    let tgt;
+
+    if (u.burstLeft > 0) {
+      // 一轮还没打完：继续朝同一个目标按短装填间隔一发一发地打
+      tgt = u.burstTarget;
+      if (!tgt || tgt.hp <= 0) {          // 目标没了就中止这一轮
+        u.burstLeft = 0;
+        u.burstTarget = null;
+        u.cd = w.fire.cd;
+        continue;
+      }
+      u.burstTimer -= dt;
+      if (u.burstTimer > 0) continue;     // 还在等下一发
+    } else {
+      if (u.cd > 0) { u.cd -= dt; continue; }
+
+      // 锁定射程内最近的敌人
+      // （保持全量扫描：每帧只发生几次，见 05-空间索引层.md §5.5）
+      tgt = null;
+      let bd = range * range;
+      for (let j = 0; j < n; j++) {
+        const o = units[j];
+        if (o.hp <= 0) continue;
+        if (squads[o.squad].faction === myF) continue;
+        const dx = o.x - u.x, dy = o.y - u.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < bd) { bd = d2; tgt = o; }
+      }
+      if (!tgt) continue;
+
+      u.burstLeft = shots;
+      u.burstTarget = tgt;
+      u.burstTimer = 0;
     }
-    if (!tgt) continue;
 
-    u.cd = w.fire.cd;
+    // ---- 打这一枪（每帧最多一发） ----
     u.lastFire = now;          // 供 UI 统计"最近 1 秒开过火"
 
     const dx = tgt.x - u.x, dy = tgt.y - u.y;
-    const L = Math.hypot(dx, dy) || 1;
-    const ux = dx / L, uy = dy / L;
+    const baseAng = Math.atan2(dy, dx);
+    const fanRad = (w.fire.fan || 0) * Math.PI / 180;
+    const idx = shots - u.burstLeft;                 // 本轮第几发（0 起）
+    const ang = baseAng + spreadOffset(idx, shots, fanRad);
 
     if (w.delivery === "hitscan") {
-      fireHitscan(u, w, ux, uy, range, myF, hue, tgt, units, squads, hits, fx, grid);
+      fireHitscan(u, w, Math.cos(ang), Math.sin(ang),
+                  range, myF, hue, tgt, units, squads, hits, fx, grid);
     } else {
-      // 飞行弹：飞向「锁定瞬间的位置」，不追踪
+      // 飞行弹：朝「当前瞄准点」发射；tracking 的会自己拐过去
+      const spd = w.travel.speed;
       projectiles.push({
         x: u.x, y: u.y,
-        vx: ux * w.travel.speed,
-        vy: uy * w.travel.speed,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd,
         travelled: 0,
-        maxDist: L,                       // 飞到锁定点
+        maxDist: range,                   // = speed × lifetime
         dmg: w.impact.dmg,
         blastR: w.impact.blastR,
         blastDmg: w.impact.blastDmg,
@@ -181,13 +281,31 @@ export function stepWeapons(units, squads, projectiles, dt, hits, now = 0, fx = 
         faction: myF,
         hue,
         contactR: w.hit.contactR,
+
+        // 制导
+        turnRate: w.travel.turnRate || 0,
+        guideR: w.travel.guideR || 0,
+
+        // 视觉
+        style: w.trail || "smoke",
+        path: w.trail === "line" ? [u.x, u.y] : null,
         seed: Math.random() * Math.PI * 2,   // 烟迹扰动的相位
       });
+
       if (fx) fx.push({
         type: "muzzle", faction: myF, hue,
         x: u.x, y: u.y,
         life: 0.12, max: 0.12,
       });
+    }
+
+    // ---- 一轮的记账 ----
+    u.burstLeft--;
+    if (u.burstLeft > 0) {
+      u.burstTimer = w.fire.burstDelay || 0;   // 短装填：等下一发
+    } else {
+      u.cd = w.fire.cd;                        // 一轮打完，进冷却
+      u.burstTarget = null;
     }
   }
 
@@ -195,12 +313,39 @@ export function stepWeapons(units, squads, projectiles, dt, hits, now = 0, fx = 
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const p = projectiles[i];
 
+    // ---- 制导：每帧朝「制导范围内敌人最密集的方向」转一点 ----
+    // 只改方向不改速率，所以弹道是等曲率圆弧。
+    // 不锁定任何目标 —— 目标死了也无所谓，下一步自然被旁边的人吸过去。
+    if (p.turnRate > 0 && p.guideR > 0) {
+      const ga = guideAngle(p, units, squads, grid);
+      if (ga !== null) {
+        const va = Math.atan2(p.vy, p.vx);
+
+        let da = ga - va;
+        if (da >  Math.PI) da -= Math.PI * 2;
+        if (da < -Math.PI) da += Math.PI * 2;
+
+        const maxTurn = p.turnRate * dt;
+        const turn = da > maxTurn ? maxTurn : (da < -maxTurn ? -maxTurn : da);
+
+        const spd = Math.hypot(p.vx, p.vy);
+        p.vx = Math.cos(va + turn) * spd;
+        p.vy = Math.sin(va + turn) * spd;
+      }
+    }
+
     const p0x = p.x, p0y = p.y;
     const p1x = p0x + p.vx * dt, p1y = p0y + p.vy * dt;
     const step = Math.hypot(p.vx, p.vy) * dt;
     p.x = p1x;
     p.y = p1y;
     p.travelled += step;
+
+    // 航迹（只有线状拖尾需要；最多留 TRAIL_PTS 个采样）
+    if (p.path) {
+      p.path.push(p1x, p1y);
+      if (p.path.length > TRAIL_PTS * 2) p.path.splice(0, 2);
+    }
 
     // ---- 飞行中的碰撞：取这一帧**最早**接触到的敌人 ----
     // 判定和弹道解耦：这里只吃 p0→p1 这一段，不管 p1 是怎么算出来的
@@ -247,8 +392,16 @@ export function stepWeapons(units, squads, projectiles, dt, hits, now = 0, fx = 
         hits.push({ t: o, dmg: p.blastDmg, pierce: p.pierce });
       }
     } else if (hitUnit) {
-      // 纯动能弹：只打命中的那一个，不波及（机枪 / 轨道炮同族）
+      // 纯动能弹：只打命中的那一个，不波及（链炮 / 机枪）
       hits.push({ t: hitUnit, dmg: p.dmg, pierce: p.pierce });
+
+      // 命中泛白：和激光命中点同源的观感
+      if (fx) fx.push({
+        type: "spark", hue: p.hue,
+        x: p.x, y: p.y,
+        s: Math.max(0.8, (p.contactR || 2) / 2),
+        life: 0.15, max: 0.15,
+      });
     }
   }
 }

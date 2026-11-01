@@ -154,8 +154,9 @@ export function stepBoard(b, dt, out) {
   }
 }
 
-/** 绘制板子（钢柱、槽、球、发球器） */
-export function drawBoard(ctx, b, binLabels, binColors, highlight) {
+/** 绘制板子（钢柱、槽、球、发球器）
+ *  highlight = 刚落球的槽（闪一下）；hover = 鼠标悬停的槽 */
+export function drawBoard(ctx, b, binLabels, binColors, highlight, hover) {
   // 底板
   ctx.fillStyle = "rgba(10,15,22,.94)";
   ctx.strokeStyle = "rgba(80,120,160,.22)";
@@ -203,12 +204,29 @@ export function drawBoard(ctx, b, binLabels, binColors, highlight) {
     const by = b.y + b.h - bh2;
 
     const on = highlight === i;
-    ctx.fillStyle = on ? "rgba(255,255,255,.16)" : "rgba(255,255,255,.05)";
+    const hv = hover === i;
+
+    ctx.fillStyle = on ? "rgba(255,255,255,.16)"
+                  : hv ? "rgba(255,255,255,.10)"
+                       : "rgba(255,255,255,.05)";
     roundRect(ctx, bx, by, bw, bh2, 4);
     ctx.fill();
 
+    // 悬停时加一层外发光，让人知道这是能点的
+    if (hv) {
+      ctx.save();
+      ctx.shadowColor = binColors[i] || "rgba(255,255,255,.6)";
+      ctx.shadowBlur = 10;
+      ctx.strokeStyle = binColors[i] || "rgba(255,255,255,.7)";
+      ctx.lineWidth = 2;
+      roundRect(ctx, bx, by, bw, bh2, 4);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     ctx.strokeStyle = binColors[i] || "rgba(255,255,255,.2)";
-    ctx.lineWidth = on ? 1.6 : 1;
+    ctx.lineWidth = (on || hv) ? 1.6 : 1;
+    roundRect(ctx, bx, by, bw, bh2, 4);
     ctx.stroke();
 
     // 模板名：字号随槽宽自适应，放不下就逐级缩小
@@ -221,6 +239,7 @@ export function drawBoard(ctx, b, binLabels, binColors, highlight) {
       ctx.font = "600 " + fs + "px 'Microsoft YaHei', system-ui, sans-serif";
     }
     ctx.fillStyle = binColors[i] || "#8ba4bb";
+    if (hv) { ctx.shadowColor = binColors[i] || "#fff"; ctx.shadowBlur = 8; }
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(label, (bin.x0 + bin.x1) / 2, by + bh2 / 2);

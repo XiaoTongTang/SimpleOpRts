@@ -24,6 +24,9 @@ export function initCombat(u, sq, idx) {
   u.weapon = sq.p.weapon || "laser";
   u.hitR = sq.p.hitR === undefined ? DEFAULT_HIT_R : sq.p.hitR;   // 受击半径
   u.cd = Math.random() * 1.0;          // 错开开火节奏
+  u.burstLeft = 0;                     // 一轮还剩几发
+  u.burstTimer = 0;                    // 距下一发还有多久
+  u.burstTarget = null;                // 这一轮锁定的目标
   u.charger = idx < (sq.p.chargers || 0);
   u.energy = 100;
   u.castCd = Math.random() * 0.3;

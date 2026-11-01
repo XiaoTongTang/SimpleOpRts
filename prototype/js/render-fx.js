@@ -19,29 +19,29 @@ export function drawFx(ctx, fx) {
       ctx.lineCap = "round";
 
       // 外发光（很薄，压暗）
-      ctx.strokeStyle = "hsla(" + hue + ",72%,52%," + (0.20 * t) + ")";
+      ctx.strokeStyle = "hsla(" + hue + ",72%,56%," + (0.26 * t) + ")";
       ctx.lineWidth = 2.4 * ws;
       ctx.beginPath(); ctx.moveTo(e.x1, e.y1); ctx.lineTo(e.x2, e.y2); ctx.stroke();
 
       // 芯（同色系高光，不用纯白）
-      ctx.strokeStyle = "hsla(" + hue + ",82%,74%," + (0.58 * t) + ")";
+      ctx.strokeStyle = "hsla(" + hue + ",82%,80%," + (0.72 * t) + ")";
       ctx.lineWidth = 0.9 * ws;
       ctx.beginPath(); ctx.moveTo(e.x1, e.y1); ctx.lineTo(e.x2, e.y2); ctx.stroke();
 
       // 枪口闪光（小）
       ctx.beginPath();
       ctx.arc(e.x1, e.y1, (1.1 + 1.8 * t) * ws, 0, Math.PI * 2);
-      ctx.fillStyle = "hsla(" + hue + ",82%,66%," + (0.45 * t) + ")";
+      ctx.fillStyle = "hsla(" + hue + ",82%,70%," + (0.55 * t) + ")";
       ctx.fill();
 
       // 命中点闪光（小）
       ctx.beginPath();
       ctx.arc(e.x2, e.y2, (1.6 + 2.4 * t) * ws, 0, Math.PI * 2);
-      ctx.fillStyle = "hsla(" + hue + ",55%,86%," + (0.65 * t) + ")";
+      ctx.fillStyle = "hsla(" + hue + ",55%,90%," + (0.80 * t) + ")";
       ctx.fill();
       ctx.beginPath();
       ctx.arc(e.x2, e.y2, (3.4 + 3.6 * t) * ws, 0, Math.PI * 2);
-      ctx.strokeStyle = "hsla(" + hue + ",78%,60%," + (0.28 * t) + ")";
+      ctx.strokeStyle = "hsla(" + hue + ",78%,64%," + (0.36 * t) + ")";
       ctx.lineWidth = 0.9;
       ctx.stroke();
       ctx.restore();
@@ -106,6 +106,34 @@ export function drawFx(ctx, fx) {
           ctx.restore();
         }
       }
+
+    } else if (e.type === "spark") {
+      // 动能弹命中：一个小而亮的白闪 + 外扩细环（对齐激光命中点的观感）
+      const p = 1 - t;                                // 0 → 1
+      const s = e.s || 1;
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+
+      // 外扩细环
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, (2.4 + 6.5 * p) * s, 0, Math.PI * 2);
+      ctx.strokeStyle = "hsla(" + hue + ",82%,74%," + (0.30 * t) + ")";
+      ctx.lineWidth = 1.0;
+      ctx.stroke();
+
+      // 泛白芯
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, (1.5 + 1.7 * t) * s, 0, Math.PI * 2);
+      ctx.fillStyle = "hsla(" + hue + ",42%,97%," + (0.58 * t) + ")";
+      ctx.fill();
+
+      // 更小的纯白点，制造"过曝"
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, (0.9 + 0.8 * t) * s, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255,255,255," + (0.40 * t) + ")";
+      ctx.fill();
+
+      ctx.restore();
 
     } else if (e.type === "impact") {
       // 命中火花：一列敌人同时亮起来，表达"被打穿了"

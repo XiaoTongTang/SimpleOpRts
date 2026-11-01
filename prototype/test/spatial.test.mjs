@@ -11,6 +11,7 @@
 
 import { Grid, sweptHit } from "../js/spatial.js";
 import { stepWeapons } from "../js/weapon-system.js";
+import { WEAPONS, weaponRange } from "../js/weapons.js";
 
 let fail = 0;
 const ok = (cond, msg) => {
@@ -277,6 +278,200 @@ console.log("\n[6] 轨道炮最多穿透 3 个单位");
   for (let i = 0; i < units2.length; i++) g2.insert(i, units2[i]);
   stepWeapons(units2, squads, [], 1 / 60, hits2, 0, null, g2);
   ok(hits2.length === 1, "激光只打中 1 个（实际 " + hits2.length + "）");
+}
+
+// ---------------------------------------------------------------
+console.log("\n[7] 导弹追踪 / 鱼雷直飞对照");
+{
+  function run(weaponId, frames = 150) {
+    const squads = [{ faction: 0 }, { faction: 1 }];
+    const shooter = { x: 100, y: 300, vx: 0, vy: 0, squad: 0, hp: 999, hitR: 4.5, weapon: weaponId, cd: 0 };
+    const target  = { x: 400, y: 300, vx: 0, vy: 0, squad: 1, hp: 999, hitR: 4.5 };
+    const units = [shooter, target];
+    const projectiles = [], hits = [];
+    const grid = new Grid(1600, 600, 64);
+
+    let firstAngle = null, turned = 0;
+
+    for (let f = 0; f < frames; f++) {
+      target.y -= 96 / 60;                    // 目标向上匀速逃逸（96 px/s）
+      grid.clear();
+      for (let i = 0; i < units.length; i++) grid.insert(i, units[i]);
+
+      hits.length = 0;
+      stepWeapons(units, squads, projectiles, 1 / 60, hits, f / 60, null, grid);
+      for (const h of hits) h.t.hp -= h.dmg;
+
+      for (const p of projectiles) {
+        const a = Math.atan2(p.vy, p.vx);
+        if (firstAngle === null) firstAngle = a;
+        turned = Math.max(turned, Math.abs(a - firstAngle));
+      }
+    }
+    return { target, turned };
+  }
+
+  const m = run("missile");
+  ok(m.target.hp < 999, "导弹追上了横移目标（掉血 " + (999 - m.target.hp).toFixed(0) + "）");
+  ok(m.turned > 0.15, "导弹确实拐弯了（转过 " + m.turned.toFixed(2) + " rad）");
+
+  const t = run("torpedo");
+  ok(t.target.hp === 999, "同场景下鱼雷直飞打空（对照组）");
+  ok(t.turned < 1e-9, "鱼雷航向没变过（turnRate = 0）");
+}
+
+// ---------------------------------------------------------------
+console.log("\n[8] 突击链炮：逐发打出 / 3° 扇形");
+{
+  const W = WEAPONS.chaingun;
+  const RANGE = weaponRange(W);
+  const DMG = W.impact.dmg;
+  const BURST = W.fire.burst;
+  const DELAY = W.fire.burstDelay;
+  const HIT_R = W.hit.contactR + 4.5;                 // 弹半径 + 目标半径
+  const halfFan = (W.fire.fan / 2) * Math.PI / 180;
+  const dFull = halfFan > 0 ? HIT_R / Math.tan(halfFan) : Infinity;   // 全中的最远距离
+
+  console.log("  取自 weapons.js：射程 " + Math.round(RANGE) + "  伤害 " + DMG +
+              "  burst " + BURST + "  间距 " + DELAY + "s");
+  console.log("  全中临界距离 = (contactR + hitR) / tan(fan/2) = " + Math.round(dFull) + "px" +
+              (dFull >= RANGE ? "  ≥ 射程 → 扇形不影响命中，只是视觉" : "  < 射程 → 远端会脱靶"));
+
+  function run(dist, frames = 140) {
+    const squads = [{ faction: 0 }, { faction: 1 }];
+    const shooter = { x: 100, y: 300, squad: 0, hp: 99999, hitR: 4.5, weapon: "chaingun", cd: 0 };
+    const target  = { x: 100 + dist, y: 300, squad: 1, hp: 99999, hitR: 4.5 };
+    const units = [shooter, target];
+    const projectiles = [], hits = [];
+    const grid = new Grid(1600, 600, 64);
+
+    const alive = [];
+    let total = 0, nHits = 0;
+
+    for (let f = 0; f < frames; f++) {
+      grid.clear();
+      for (let i = 0; i < units.length; i++) grid.insert(i, units[i]);
+
+      hits.length = 0;
+      stepWeapons(units, squads, projectiles, 1 / 60, hits, f / 60, null, grid);
+      for (const h of hits) { h.t.hp -= h.dmg; total += h.dmg; nHits++; }
+
+      alive.push(projectiles.length);
+    }
+    return { total, nHits, alive, peak: Math.max(...alive) };
+  }
+
+  // 距离取 95% 射程：飞行时间（≈0.48s）长于整轮射击窗口（0.36s），
+  // 这样第 4 发出膛时第 1 发还没落地，才测得到峰值。
+  const D = RANGE * 0.95;
+  const t = run(D);
+
+  ok(t.alive[0] === 1, "第 1 帧只打出 1 发（实际 " + t.alive[0] + "）");
+  ok(t.alive[4] === 1, "约 0.07s 时仍是 1 发（实际 " + t.alive[4] + "）");
+  ok(t.peak === BURST, "峰值 " + BURST + " 发同时在场（实际 " + t.peak + "）");
+
+  const fBurst = t.alive.indexOf(BURST);
+  const expectFrame = Math.ceil((BURST - 1) * DELAY * 60) - 2;
+  ok(fBurst >= expectFrame,
+     "第 " + BURST + " 发在约 " + ((BURST - 1) * DELAY).toFixed(2) + "s 后才出现（第 " + fBurst + " 帧）");
+
+  if (D <= dFull) {
+    ok(t.nHits === BURST, "该距离下 " + BURST + " 发全中（实际 " + t.nHits + " 次）");
+    ok(t.total === BURST * DMG, "总伤害 " + (BURST * DMG) + "（实际 " + t.total + "）");
+  } else {
+    ok(t.nHits > 0 && t.nHits < BURST, "扇形导致脱靶（" + t.nHits + "/" + BURST + " 命中）");
+  }
+}
+
+// ---------------------------------------------------------------
+console.log("\n[9] 链炮的射弹外观与命中特效");
+{
+  const squads = [{ faction: 0 }, { faction: 1 }];
+  const shooter = { x: 100, y: 300, squad: 0, hp: 999, hitR: 4.5, weapon: "chaingun", cd: 0 };
+  const target  = { x: 300, y: 300, squad: 1, hp: 999, hitR: 4.5 };
+  const units = [shooter, target];
+  const projectiles = [], hits = [], fx = [];
+  const grid = new Grid(1600, 600, 64);
+
+  let styleAtBirth = null;
+
+  for (let f = 0; f < 60; f++) {
+    grid.clear();
+    for (let i = 0; i < units.length; i++) grid.insert(i, units[i]);
+
+    hits.length = 0;
+    stepWeapons(units, squads, projectiles, 1 / 60, hits, f / 60, fx, grid);
+    for (const h of hits) h.t.hp -= h.dmg;
+
+    if (f === 0 && projectiles.length) styleAtBirth = projectiles[0].style;
+  }
+
+  ok(styleAtBirth === "streak", "射弹样式是 streak（线形），实际 " + styleAtBirth);
+  ok(fx.some(e => e.type === "spark"), "命中产生了 spark（泛白闪光）");
+
+  const sparks = fx.filter(e => e.type === "spark");
+  ok(sparks.length === 4, "近距离 4 发各产生一次 spark（实际 " + sparks.length + "）");
+  ok(sparks.every(e => e.max <= 0.2), "闪光很短（" + sparks[0].max + "s），不会糊成一片");
+
+  // 鱼雷走爆炸分支，不应该产生 spark
+  const p2 = [], fx2 = [];
+  const u2 = [
+    { x: 100, y: 300, squad: 0, hp: 999, hitR: 4.5, weapon: "torpedo", cd: 0 },
+    { x: 300, y: 300, squad: 1, hp: 999, hitR: 4.5 },
+  ];
+  const g2 = new Grid(1600, 600, 64);
+  for (let f = 0; f < 60; f++) {
+    g2.clear();
+    for (let i = 0; i < u2.length; i++) g2.insert(i, u2[i]);
+    const h2 = [];
+    stepWeapons(u2, squads, p2, 1 / 60, h2, f / 60, fx2, g2);
+    for (const h of h2) h.t.hp -= h.dmg;
+  }
+  ok(!fx2.some(e => e.type === "spark"), "鱼雷不产生 spark（走 blast 分支）");
+  ok(fx2.some(e => e.type === "blast"), "鱼雷产生了 blast");
+}
+
+// ---------------------------------------------------------------
+console.log("\n[10] 导弹制导：被吸向「最密集方向」而不是锁定单体");
+{
+  // 上方 5 个挤成一坨，下方 1 个孤零零 —— 两者都在制导范围内
+  function run(guideR, frames = 20) {
+    const squads = [{ faction: 0 }, { faction: 1 }];
+    const units = [];
+    for (let i = 0; i < 5; i++) {
+      units.push({ x: 200 + (i % 2) * 18, y: 200 + ((i / 2) | 0) * 18, squad: 1, hp: 9999, hitR: 4.5 });
+    }
+    units.push({ x: 200, y: 380, squad: 1, hp: 9999, hitR: 4.5 });
+
+    const projectiles = [{
+      x: 100, y: 300, vx: 240, vy: 0,
+      travelled: 0, maxDist: 480,
+      dmg: 40, blastR: 24, blastDmg: 24, pierce: false,
+      faction: 0, hue: 200, contactR: 4,
+      turnRate: 2.5, guideR,
+      style: "line", path: [100, 300],
+    }];
+
+    const hits = [];
+    const grid = new Grid(1600, 600, 64);
+
+    for (let f = 0; f < frames && projectiles.length; f++) {
+      grid.clear();
+      for (let i = 0; i < units.length; i++) grid.insert(i, units[i]);
+      hits.length = 0;
+      stepWeapons(units, squads, projectiles, 1 / 60, hits, f / 60, null, grid);
+      for (const h of hits) h.t.hp -= h.dmg;
+    }
+    return projectiles.length
+      ? { vx: projectiles[0].vx, vy: projectiles[0].vy }
+      : { vx: 0, vy: 0, gone: true };
+  }
+
+  const on = run(180);
+  ok(!on.gone && on.vy < -60, "朝上方 5 个那一坨拐过去（vy = " + on.vy.toFixed(1) + "）");
+
+  const off = run(0);
+  ok(!off.gone && Math.abs(off.vy) < 1, "guideR = 0 时保持直飞（vy = " + off.vy.toFixed(2) + "）");
 }
 
 console.log(fail === 0 ? "\n全部通过 ✅" : "\n有 " + fail + " 项失败 ❌");

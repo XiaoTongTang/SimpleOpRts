@@ -82,10 +82,10 @@ export const TEMPLATES = [
   },
   {
     key: "bastion", name: "要塞战术群", desc: "缓慢硬墙",
-    weapon: "laser",
+    weapon: "chaingun",
     hue: [262, 37],
     info: {
-      weapon: "激光",
+      weapon: "突击链炮",
       defense: "240血,6每秒回血,5护盾充能器",
       formation: "10人口,等距阵列,缓慢推进"
     },
@@ -95,6 +95,23 @@ export const TEMPLATES = [
       wSep: 1.15, wAli: 0.50, wCoh: 1.45,
       r4: 55, r5: 270, wSeek: 1.00, wThreat: 2.00,
       members: 10, hp: 300, regen: 6, chargers: 5
+    }
+  },
+  {
+    key: "falcon", name: "游隼导弹战斗群",
+    weapon: "missile",
+    hue: [280, 55],                 // 蓝=紫，红=黄橙；与同阵营其他模板相距 18°
+    info: {
+      weapon: "导弹",
+      defense: "70血,1.5每秒回血,0护盾充能器",
+      formation: "12人口,松散游猎,远程压制"
+    },
+    p: {
+      // 远程、松散、脆：靠射程和追踪吃饭，被贴脸就崩
+      rRep: 26, rOri: 56, rAtt: 110,
+      wSep: 1.05, wAli: 0.55, wCoh: 0.50,
+      r4: 180, r5: 340, wSeek: 0.75, wThreat: 1.30,
+      members: 12, hp: 70, regen: 1.5, chargers: 0
     }
   }
 ];
