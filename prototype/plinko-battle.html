@@ -12,10 +12,14 @@
     color: #c9d6e4; user-select: none;
   }
   canvas { display: block; touch-action: none; }
+  /* 两层画布：#c 是战场（渲染器独占），#ui 是 UI 覆盖层（将来换成 React + DOM） */
+  #c, #ui { position: fixed; left: 0; top: 0; }
+  #ui { pointer-events: none; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<canvas id="ui"></canvas>
 
 <script type="module">
 import {
@@ -26,11 +30,10 @@ import { stepWeapons } from "./js/weapon-system.js";
 import {
   applyDamage, stepRegen, stepChargers, initCombat
 } from "./js/defense-system.js";
-import { drawUnits, drawProjectiles, drawUnitGlyph } from "./js/render-units.js";
 import { Grid, SpatialDebug, SpatialStats } from "./js/spatial.js";
-import { drawFx } from "./js/render-fx.js";
 import { createBoard, stepBoard, drawBoard } from "./js/plinko.js";
-import { drawStation, drawTower as drawTowerArt } from "./js/structures.js";
+import { createCanvas2DRenderer } from "./js/renderer-canvas2d.js";
+import { drawUnitGlyph } from "./js/render-units.js";   // UI 层的战斗群色标还要用它
 import {
   TEMPLATES, LOOSE_SQUAD, BASE_HP, templateDef, templateHue, swatchColor
 } from "./js/templates.js";
@@ -39,8 +42,14 @@ import {
   "use strict";
 
   // ---------- 画布 ----------
+  // 世界层：渲染器独占（见 js/renderer.js 的接口约定），换 Pixi 只动这一行
   const cvs = document.getElementById("c");
-  const ctx = cvs.getContext("2d");
+  const renderer = createCanvas2DRenderer(cvs);
+
+  // UI 层：屏幕坐标，将来换成 React + DOM。这张画布只为过渡期存在
+  const uiCvs = document.getElementById("ui");
+  const ctx = uiCvs.getContext("2d");
+
   let W = 0, H = 0;
   let grid = null;            // 空间索引，只服务武器系统（见 design/.../05）
 
@@ -166,10 +175,15 @@ import {
   function layout() {
     W = window.innerWidth;
     H = window.innerHeight;
-    cvs.width = W;
-    cvs.height = H;
-    cvs.style.width = W + "px";
-    cvs.style.height = H + "px";
+    renderer.resize(W, H);        // 世界层（自己处理 DPR）
+
+    // UI 层同样按设备像素分配，否则文字会被浏览器上采样糊掉
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    uiCvs.width = Math.round(W * dpr);
+    uiCvs.height = Math.round(H * dpr);
+    uiCvs.style.width = W + "px";
+    uiCvs.style.height = H + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);   // 之后所有 UI 绘制仍用 CSS px
 
     const GAP = 12;
 
@@ -272,6 +286,8 @@ import {
     return {
       faction, squadId: id, unit: u,
       x: p.x, y: p.y,
+      hue: faction === 0 ? 205 : 5,   // 渲染层不查配置，色相跟着数据走
+      radius: BASE_R,
       hp: BASE_HP, maxHp: BASE_HP,
       spawnTimer: 2.0, dead: false, pulse: Math.random() * 6
     };
@@ -312,6 +328,8 @@ import {
       towers.push({
         faction, slot, squadId: id, unit: u,
         x: p.x, y: p.y,
+        hue: faction === 0 ? 205 : 5,
+        radius: TOWER_CFG.radius,
         hp: TOWER_CFG.hp, maxHp: TOWER_CFG.hp,
         dead: false, pulse: Math.random() * 6
       });
@@ -617,100 +635,35 @@ import {
     if (flash.t > 0) flash.t -= dt;
   }
 
-  // ---------- 基地 / 防御塔绘制 ----------
-  const BASE_R = 40;          // 空间站的绘制半径（S7 棱堡环港，见 js/structures.js）
-
-  function drawBase(b) {
-    const hue = b.faction === 0 ? 205 : 5;
-
-    ctx.save();
-    ctx.translate(b.x, b.y);
-    if (b.dead) ctx.globalAlpha = 0.35;
-    drawStation(ctx, hue, b.pulse, BASE_R);
-    ctx.restore();
-
-    // 血条
-    const bw = 84, bh = 5;
-    const bx = b.x - bw / 2, by = b.y + BASE_R + 18;
-    const f = Math.max(0, Math.min(1, b.hp / b.maxHp));
-
-    ctx.fillStyle = "rgba(6,10,16,.8)";
-    ctx.fillRect(bx, by, bw, bh);
-    ctx.fillStyle = f > 0.5 ? "hsl(" + hue + ",72%,58%)"
-                  : f > 0.25 ? "#e8c14a" : "#e8564f";
-    ctx.fillRect(bx, by, bw * f, bh);
-
-    ctx.save();
-    ctx.font = "600 10px 'Segoe UI', system-ui, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    ctx.fillStyle = "rgba(150,175,200,.75)";
-    ctx.fillText(Math.max(0, Math.round(b.hp)) + " / " + b.maxHp, b.x, by + 8);
-    ctx.restore();
-  }
-
-  /** 防御塔：T3 蜂窝塔（六个发射器，整塔不转） */
-  function drawTower(tw) {
-    const hue = tw.faction === 0 ? 205 : 5;
-
-    ctx.save();
-    ctx.translate(tw.x, tw.y);
-    if (tw.dead) ctx.globalAlpha = 0.32;
-    drawTowerArt(ctx, hue, tw.pulse, TOWER_CFG.radius);
-    ctx.restore();
-
-    if (tw.dead) return;
-
-    // 小血条：只在掉血时出现，免得平时太碎
-    if (tw.hp < tw.maxHp) {
-      const bw = 40, bh = 3.5;
-      const bx = tw.x - bw / 2, by = tw.y + TOWER_CFG.radius + 12;
-      const f = Math.max(0, tw.hp / tw.maxHp);
-      ctx.fillStyle = "rgba(6,10,16,.8)";
-      ctx.fillRect(bx, by, bw, bh);
-      ctx.fillStyle = f > 0.5 ? "hsl(" + hue + ",72%,58%)"
-                    : f > 0.25 ? "#e8c14a" : "#e8564f";
-      ctx.fillRect(bx, by, bw * f, bh);
-    }
-  }
-
   // ---------- 渲染 ----------
+  // 世界层由渲染器负责（js/renderer.js 的接口），UI 层画在另一张画布上
+  const BASE_R = 40;          // 空间站的绘制半径（写进基地对象，渲染器读它）
+
   const BIN_LABELS = TEMPLATES.map(t => t.name);
   // 双方共用一块板，槽位颜色用「蓝方」那套，正好和下方介绍的蓝方色块对应
   const BIN_COLORS = TEMPLATES.map(t => swatchColor(templateHue(t, 0)));
 
+  /** 交给渲染器的只读视图：只做投影，不复制数据 */
+  function buildView() {
+    return {
+      width: W,
+      height: H,
+      camera: { ox: FX, oy: FY, zoom: ZOOM },
+      world: { w: FW, h: FH },
+      bases, towers, units, squads, fx, projectiles,
+    };
+  }
+
   function render() {
-    ctx.fillStyle = "#07090d";
-    ctx.fillRect(0, 0, W, H);
+    // ---------- 世界层（渲染器独占 #c） ----------
+    renderer.draw(buildView());
 
-    // ---------- 左：战场（单位坐标原点是战场左上角，这里平移 + 缩放） ----------
-    ctx.save();
-    ctx.translate(FX, FY);
-    ctx.scale(ZOOM, ZOOM);
-
-    ctx.setLineDash([5, 9]);
-    ctx.strokeStyle = "rgba(80,120,160,.14)";
-    ctx.lineWidth = 1 / ZOOM;                 // 缩放后仍然是 1px
-    ctx.strokeRect(0.5, 0.5, FW - 1, FH - 1);
-    ctx.setLineDash([]);
-
-    for (const b of bases) drawBase(b);
-    for (const tw of towers) drawTower(tw);
-    drawUnits(ctx, units, squads);
-    drawFx(ctx, fx);
-    drawProjectiles(ctx, projectiles);
-    drawHud();
-
-    ctx.restore();
-
-    // 战况一行：屏幕坐标，不吃上面的缩放
-    drawStatLine();
-
-    // ---------- 右：侧栏 ----------
-    drawSidePanel();
-
-    // ---------- 侧栏底部：自动出兵开关 ----------
-    drawAutoToggle();
+    // ---------- UI 层（屏幕坐标，画在透明的 #ui 上） ----------
+    ctx.clearRect(0, 0, W, H);
+    drawHud();            // 胜负 / 暂停
+    drawStatLine();       // 战场底部的战况一行
+    drawSidePanel();      // 右：落球机 + 战斗群
+    drawAutoToggle();     // 侧栏底部：自动出兵
   }
 
   /**
@@ -1149,8 +1102,16 @@ import {
     ctx.restore();
   }
 
-  /** 胜负 / 暂停的居中提示（战场坐标，跟着 ZOOM 走） */
+  /**
+   * 胜负 / 暂停的居中提示。
+   * 原来画在战场坐标系里，现在搬到 UI 层：位置取战场矩形的屏幕中心，
+   * 字号乘 ZOOM —— 和搬过来之前像素级一致。
+   */
   function drawHud() {
+    const k = ZOOM;
+    const cx = FX + (FW / 2) * k;
+    const cy = FY + (FH / 2) * k;
+
     ctx.save();
     ctx.textBaseline = "middle";
     ctx.textAlign = "center";
@@ -1160,21 +1121,21 @@ import {
       const winner = S.over === 0 ? "蓝方" : "红方";
       const loser = S.over === 0 ? "红方" : "蓝方";
 
-      ctx.font = "700 34px 'Segoe UI', system-ui, sans-serif";
+      ctx.font = "700 " + (34 * k) + "px 'Segoe UI', system-ui, sans-serif";
       ctx.fillStyle = S.over === 0 ? "rgba(95,168,232,.9)" : "rgba(232,97,79,.9)";
-      ctx.fillText(winner + "胜利", FW / 2, FH / 2 - 26);
+      ctx.fillText(winner + "胜利", cx, cy - 26 * k);
 
-      ctx.font = "500 14px 'Segoe UI', system-ui, sans-serif";
+      ctx.font = "500 " + (14 * k) + "px 'Segoe UI', system-ui, sans-serif";
       ctx.fillStyle = "rgba(160,180,200,.65)";
-      ctx.fillText(loser + "基地被摧毁", FW / 2, FH / 2 + 12);
+      ctx.fillText(loser + "基地被摧毁", cx, cy + 12 * k);
 
-      ctx.font = "500 12px 'Segoe UI', system-ui, sans-serif";
+      ctx.font = "500 " + (12 * k) + "px 'Segoe UI', system-ui, sans-serif";
       ctx.fillStyle = "rgba(160,180,200,.45)";
-      ctx.fillText("按 R 重开", FW / 2, FH / 2 + 40);
+      ctx.fillText("按 R 重开", cx, cy + 40 * k);
     } else if (S.paused) {
-      ctx.font = "700 26px 'Segoe UI', system-ui, sans-serif";
+      ctx.font = "700 " + (26 * k) + "px 'Segoe UI', system-ui, sans-serif";
       ctx.fillStyle = "rgba(255,255,255,.16)";
-      ctx.fillText("暂停", FW / 2, FH / 2);
+      ctx.fillText("暂停", cx, cy);
     }
     ctx.restore();
   }

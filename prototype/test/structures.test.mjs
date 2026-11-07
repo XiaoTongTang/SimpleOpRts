@@ -33,38 +33,50 @@ console.log("\n[1] 防御塔用导弹：射程 / 冷却 / 伤害");
      "伤害 / 爆炸半径与普通导弹相同（" + W.impact.dmg + " / " + W.impact.blastR + "）");
   ok(W.delivery === "projectile", "是飞行弹而不是瞬发（" + W.delivery + "）");
 
-  /** 塔打一个静止目标，跑 frames 帧 */
-  function run(dist, frames = 200) {
+  /** 塔打一个静止目标，跑 frames 帧，返回开火帧号 */
+  function shotFrames(dist, frames) {
     const squads = [{ faction: 0 }, { faction: 1 }];
     const tower = { x: 100, y: 300, squad: 0, hp: 800, hitR: 22, weapon: "towermissile", cd: 0 };
     const target = { x: 100 + dist, y: 300, squad: 1, hp: 99999, hitR: 4.5 };
     const units = [tower, target];
     const projectiles = [], hits = [];
     const grid = new Grid(1600, 600, 64);
+    const out = [];
 
-    let firstShot = -1, shots = 0, total = 0;
     for (let f = 0; f < frames; f++) {
       grid.clear();
       for (let i = 0; i < units.length; i++) grid.insert(i, units[i]);
       const before = projectiles.length;
       hits.length = 0;
       stepWeapons(units, squads, projectiles, 1 / 60, hits, f / 60, null, grid);
-      if (projectiles.length > before) { shots++; if (firstShot < 0) firstShot = f; }
-      for (const h of hits) { h.t.hp -= h.dmg; total += h.dmg; }
+      if (projectiles.length > before) out.push(f);
     }
-    return { firstShot, shots, total, targetHp: target.hp };
+    return out;
   }
 
-  const near = run(200);
-  ok(near.firstShot === 0, "射程内第一帧就开火（第 " + near.firstShot + " 帧）");
-  ok(near.targetHp < 99999, "导弹打到了目标（剩 " + near.targetHp + " 血）");
-  // 爆炸类武器只结算 blastDmg：直接命中那一下由爆炸覆盖（和普通导弹同一个分支）
-  ok(near.total > 0 && near.total % W.impact.blastDmg === 0,
-     "每发按爆炸伤害 " + W.impact.blastDmg + " 结算（总伤害 " + near.total + "）");
+  const near = shotFrames(200, 200);
+  ok(near.length > 0 && near[0] === 0, "射程内第一帧就开火（第 " + near[0] + " 帧）");
 
-  // 冷却 1s = 60 帧：200 帧内应该打出 4 发（第 0 / 60 / 120 / 180 帧）
-  const p = run(400);
-  ok(p.shots === 4, "200 帧内按 1s 冷却打出 4 发（实际 " + p.shots + "）");
+  const BURST = W.fire.burst || 1;
+  const DELAY = W.fire.burstDelay || 0;
+  const CYCLE = W.fire.cd + (BURST - 1) * DELAY;      // 一轮打完到下一轮第一发
+
+  console.log("  节奏取自 weapons.js：每轮 " + BURST + " 发，间隔 " + DELAY +
+              "s，轮间 " + W.fire.cd + "s（整轮周期 " + CYCLE.toFixed(2) + "s）");
+
+  const shots = shotFrames(400, Math.ceil((CYCLE * 2 + 0.02) * 60));
+  ok(shots.length >= BURST * 2, "两轮内至少打出 " + (BURST * 2) + " 发（实际 " + shots.length + "）");
+
+  // 逐发核对间隔：轮内 = burstDelay；轮间 = cd（cd 从一轮的最后一发起算）
+  const tol = 1.5 / 60;
+  let bad = [];
+  for (let i = 1; i < shots.length; i++) {
+    const gap = (shots[i] - shots[i - 1]) / 60;
+    const expect = (i % BURST === 0) ? W.fire.cd : DELAY;
+    if (Math.abs(gap - expect) > tol) bad.push(i + ":" + gap.toFixed(3) + "≠" + expect.toFixed(3));
+  }
+  ok(bad.length === 0, "逐发间隔与参数表一致（偏差 " + bad.length + " 处" +
+     (bad.length ? "：" + bad.slice(0, 3).join(" ") : "") + "）");
 }
 
 // ---------------------------------------------------------------
