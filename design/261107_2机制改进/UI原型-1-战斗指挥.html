@@ -276,6 +276,36 @@
   }
   .ccard .kv { padding: 2px 0; }
 
+  /* 构筑入口：跳到另外三个构筑界面 */
+  .navcard { flex: none; }
+  .navcard .sec { display: flex; flex-direction: column; gap: 6px; }
+  .navbtn {
+    display: flex; align-items: center; gap: 7px;
+    height: 26px;
+    padding: 0 9px;
+    border-radius: 0;
+    border: 2px solid var(--px-edge-dim, #24405a);
+    background: #0b141c;
+    color: #9dc8ec;
+    font-size: 11.5px; letter-spacing: .04em;
+    text-decoration: none;
+    white-space: nowrap;
+    box-shadow: none;
+  }
+  .navbtn i {
+    font-style: normal;
+    font-family: var(--mono); font-size: 9px;
+    color: var(--mute);
+  }
+  .navbtn span { margin-left: auto; color: #4f6478; font-size: 11px; }
+  .navbtn:hover {
+    border-color: var(--px-hi, #7fc0f5);
+    color: #d6ecff;
+    background: var(--px-face-sel, #1b3550);
+  }
+  .navbtn:hover span { color: #8fb6d6; }
+  .navbtn:active { transform: translateY(1px); }
+
   .build-empty {
     margin: 10px;
     flex: 1;
@@ -359,6 +389,35 @@
   .cancel-cmd:hover { background: rgba(180,60,45,.34); border-color: var(--danger); }
   .cancel-cmd:active { transform: none; box-shadow: none; }
 
+  /* 小队操作：解散 / 吸收散兵 */
+  .acts-row {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; gap: 5px;
+    min-width: 0;
+  }
+  .acts-row .spacer { flex: 1; }
+  .sbtn {
+    flex: none;
+    height: 17px; padding: 0 6px;
+    font-size: 10px; line-height: 1;
+    border-radius: 0;
+    border: 1px solid rgba(88,126,166,.28);
+    background: #0b141c;
+    color: #6f8aa4;
+    cursor: pointer;
+    box-shadow: none;
+    white-space: nowrap;
+  }
+  .sbtn:hover { color: #d6ecff; border-color: var(--px-hi, #7fc0f5); background: var(--px-face-sel, #1b3550); }
+  .sbtn:active { transform: none; box-shadow: none; }
+  .sbtn.warn { color: #c08f88; border-color: rgba(200,80,60,.34); }
+  .sbtn.warn:hover { color: #ffd0cb; border-color: var(--danger); background: rgba(180,60,45,.28); }
+  .sbtn.dis, .sbtn.dis:hover {
+    color: #46596b; border-color: rgba(88,126,166,.16);
+    background: #0b141c; cursor: default;
+  }
+  .squad-row .alive.bump { color: #7fd7a2; }
+
   /* 底部：取消信标按钮（红色） */
   .cmd .btn.danger {
     border-color: rgba(200,80,60,.6);
@@ -440,6 +499,15 @@
         <div class="tpl-grid" id="tpl-grid"></div>
       </div>
 
+      <div class="ccard navcard">
+        <div class="panel-head">构筑</div>
+        <div class="sec">
+          <a class="navbtn" href="./UI原型-2-舰船设计.html"><i>02</i>设计舰船<span>›</span></a>
+          <a class="navbtn" href="./UI原型-3-小队构筑.html"><i>03</i>构筑小队<span>›</span></a>
+          <a class="navbtn" href="./UI原型-4-阵型编辑.html"><i>04</i>阵型编辑<span>›</span></a>
+        </div>
+      </div>
+
       <div class="foot"><a href="./UI原型-0-总览.html">← 原型总览</a> · UI 原型 1</div>
     </div>
 
@@ -490,13 +558,13 @@ const SQUADS = [
   { key:'B',  f:0, name:'第二突击队',   hue:178, alive:24, max:24, cmd:96, x:26, y:43, frame:'f17', forms:['dense','wide'],                   form:'dense',    beacon:{ x:37, y:40 } },
   { key:'C',  f:0, name:'盾墙队',       hue:232, alive:11, max:24, cmd:96, x:21, y:61, frame:'f33', forms:['dense','wide'],                   form:'dense' },
   { key:'D',  f:0, name:'游击群',       hue:158, alive:24, max:24, cmd:96, x:38, y:78, frame:'f49', forms:['guerrilla','wide'],               form:'guerrilla' },
-  { key:'S0', f:0, name:'蓝方散兵',     hue:196, alive:4,  max:6,  cmd:24, x:13, y:86, frame:'f01', forms:['guerrilla'],                      form:'guerrilla' },
+  { key:'S0', f:0, name:'蓝方散兵',     hue:196, alive:4,  max:6,  cmd:24, x:13, y:86, frame:'f01', forms:['guerrilla'],                      form:'guerrilla', scatter:true },
 
   { key:'E',  f:1, name:'红方第一队',   hue:6,   alive:24, max:24, cmd:96, x:74, y:26, frame:'f33', forms:['standard','dense'],               form:'standard' },
   { key:'F',  f:1, name:'红方第二队',   hue:19,  alive:23, max:24, cmd:96, x:80, y:44, frame:'f01', forms:['dense','wide'],                   form:'dense',    beacon:{ x:66, y:36 } },
   { key:'G',  f:1, name:'红方盾墙队',   hue:37,  alive:24, max:24, cmd:96, x:71, y:62, frame:'f17', forms:['dense','wide'],                   form:'dense' },
   { key:'H',  f:1, name:'红方游击群',   hue:55,  alive:22, max:24, cmd:96, x:86, y:77, frame:'f49', forms:['guerrilla','wide'],               form:'guerrilla' },
-  { key:'S1', f:1, name:'红方散兵',     hue:14,  alive:5,  max:6,  cmd:24, x:90, y:89, frame:'f01', forms:['guerrilla'],                      form:'guerrilla' },
+  { key:'S1', f:1, name:'红方散兵',     hue:14,  alive:5,  max:6,  cmd:24, x:90, y:89, frame:'f01', forms:['guerrilla'],                      form:'guerrilla', scatter:true },
 ];
 
 /* 阵营：玩家和 NPC 是平等的两个阵营，切换后整套侧栏都跟着换 */
@@ -528,6 +596,7 @@ const el = id => document.getElementById(id);
 
 let selected = new Set(['A']);
 let faction = 0;                      // 当前查看/指挥的阵营
+let bump = null;                      // 刚吸收过散兵的小队，短暂高亮
 const isAlly = s => s.hue >= 120;     // 只用于给小舰上色
 const F = () => FACTIONS[faction];
 const mySquads = () => SQUADS.filter(s => s.f === faction);
@@ -626,15 +695,28 @@ function buildList() {
       <button class="fchip${s.form === id ? ' on' : ''}"
               data-key="${s.key}" data-form="${id}"
               title="${FORMS[id].full}">${FORMS[id].short}</button>`).join('');
+    // 吸收散兵：编制没满、且场上有散兵才可用
+    const pool = poolOf(s);
+    const gap = s.max - s.alive;
+    const canAbsorb = gap > 0 && pool > 0;
+    const absorbBtn = s.scatter ? '' : `
+          <button class="sbtn${canAbsorb ? '' : ' dis'}" data-absorb="${s.key}"
+                  ${canAbsorb ? '' : 'disabled'}
+                  title="${gap <= 0 ? '编制已满' : pool <= 0 ? '场上没有可吸收的散兵' : `从散兵吸收 ${Math.min(gap, pool)} 舰补满编制`}">吸收散兵补充编制</button>`;
     return `
-      <div class="squad-row${sel}" data-key="${s.key}">
+      <div class="squad-row${sel}" data-key="${s.key}"${bump === s.key ? ' data-bump="1"' : ''}>
         <span class="nm">${s.name}</span>
-        <span class="alive">${s.alive}<em>/${s.max}</em></span>
+        <span class="alive${bump === s.key ? ' bump' : ''}">${s.alive}<em>/${s.max}</em></span>
         <div class="forms-row">
           <span class="status-chip${s.beacon ? ' ord' : ''}">${s.beacon ? '受到命令' : '自动状态'}</span>
           ${s.beacon ? `<button class="cancel-cmd" data-cancel="${s.key}" title="取消这队的命令信标">取消命令</button>` : ''}
           <span class="spacer"></span>
           <i>阵型</i>${chips}
+        </div>
+        <div class="acts-row">
+          <button class="sbtn warn" data-disband="${s.key}" title="解散后这队舰船从战场移除，指挥值归还">解散小队</button>
+          ${absorbBtn}
+          <span class="spacer"></span>
         </div>
       </div>`;
   }).join('');
@@ -659,6 +741,22 @@ function buildList() {
     btn.addEventListener('click', e => {
       e.stopPropagation();
       clearBeacons([btn.dataset.cancel]);
+    });
+  });
+
+  // 解散小队
+  listEl.querySelectorAll('[data-disband]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      disbandSquad(btn.dataset.disband);
+    });
+  });
+
+  // 吸收散兵补充编制
+  listEl.querySelectorAll('[data-absorb]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      if (!btn.classList.contains('dis')) absorbScatter(btn.dataset.absorb);
     });
   });
 
@@ -806,6 +904,61 @@ function clearBeacons(keys) {
   if (!any) return;
   buildField();
   refreshSelection();
+}
+
+/* ---------- 解散 / 吸收散兵（阵营通用，红蓝两边都能用） ---------- */
+
+/** 本阵营场上所有散兵 */
+const scatterOf = fac => SQUADS.filter(s => s.scatter && s.f === fac);
+/** 除了自己以外，还能吸收到多少舰 */
+const poolOf = s => scatterOf(s.f).filter(x => x.key !== s.key).reduce((n, x) => n + x.alive, 0);
+
+/** 解散：舰船离开战场，指挥值归还 */
+function disbandSquad(key) {
+  const i = SQUADS.findIndex(s => s.key === key);
+  if (i < 0) return;
+  const s = SQUADS[i];
+  const f = FACTIONS[s.f];
+  f.ships = Math.max(0, f.ships - s.alive);
+  f.cmd = Math.max(0, f.cmd - s.cmd);
+  SQUADS.splice(i, 1);
+  selected.delete(key);
+  buildField();
+  renderSide();
+  refreshSelection();
+}
+
+/** 吸收散兵：从散兵身上拿舰补满这队编制；散兵被打空就消失 */
+function absorbScatter(key) {
+  const s = SQUADS.find(x => x.key === key);
+  if (!s) return;
+  let need = s.max - s.alive;
+  if (need <= 0) return;
+
+  const srcs = scatterOf(s.f).filter(x => x.key !== key);
+  let moved = 0;
+  for (const src of srcs) {
+    if (need <= 0) break;
+    const take = Math.min(need, src.alive);
+    src.alive -= take;
+    s.alive += take;
+    need -= take;
+    moved += take;
+  }
+  if (!moved) return;
+
+  // 散兵被吸空：整队从战场消失
+  for (const src of [...srcs]) {
+    if (src.alive > 0) continue;
+    const i = SQUADS.indexOf(src);
+    if (i >= 0) SQUADS.splice(i, 1);
+    selected.delete(src.key);
+  }
+
+  bump = key;
+  buildField();
+  refreshSelection();
+  setTimeout(() => { bump = null; buildList(); }, 900);
 }
 
 /* ---------- 框选 ---------- */
