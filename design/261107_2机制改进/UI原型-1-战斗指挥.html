@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>UI 原型 1 · 战斗指挥界面</title>
+<link rel="stylesheet" href="./UI原型.css">
+<style>
+  /* ---- 战斗指挥：战场铺满，右栏只放小队 ---- */
+  .stage { display: grid; grid-template-columns: minmax(0,1fr) 312px; height: 100%; }
+
+  .field {
+    position: relative;
+    overflow: hidden;
+    background:
+      radial-gradient(ellipse 70% 55% at 50% 45%, #0c1521 0%, #070a0f 60%, #04060a 100%);
+    cursor: crosshair;
+    user-select: none;
+  }
+  /* 战场细网格 + 边框 */
+  .field::before {
+    content: "";
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(90,130,170,.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(90,130,170,.055) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse 85% 80% at 50% 50%, #000 45%, transparent 100%);
+    pointer-events: none;
+  }
+  .field::after {
+    content: "";
+    position: absolute; inset: 18px;
+    border: 1px dashed rgba(80,120,160,.14);
+    pointer-events: none;
+  }
+
+  .field-label {
+    position: absolute; left: 26px; top: 24px;
+    font-size: 10px; letter-spacing: .18em; text-transform: uppercase;
+    color: rgba(120,150,180,.45);
+  }
+  .field-hint {
+    position: absolute; left: 26px; bottom: 22px;
+    font-size: 11px; color: rgba(120,150,180,.55);
+    display: flex; gap: 14px;
+  }
+  .field-hint kbd {
+    font: inherit; padding: 1px 5px; border-radius: 3px;
+    border: 1px solid rgba(90,130,170,.28);
+    background: rgba(60,90,120,.2);
+    color: #9fb9d2; font-size: 10px;
+  }
+
+  /* 小队标记：出现在小队质心 */
+  .marker {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: 12px; font-weight: 700;
+    color: #06101a;
+    border: 2px solid rgba(255,255,255,.25);
+    cursor: pointer;
+    z-index: 5;
+    transition: box-shadow .12s, transform .12s;
+    box-shadow: 0 0 0 0 rgba(79,163,232,0);
+  }
+  .marker:hover { transform: translate(-50%,-50%) scale(1.1); }
+  .marker.sel {
+    box-shadow: 0 0 0 3px rgba(79,163,232,.55), 0 0 22px rgba(79,163,232,.5);
+  }
+  .marker .cnt {
+    position: absolute; bottom: -15px;
+    font-size: 10px; font-weight: 500;
+    color: #a9c4dc; font-family: var(--mono);
+    white-space: nowrap;
+    text-shadow: 0 1px 3px #000;
+  }
+  /* 选中时的朝向环 */
+  .marker.sel::after {
+    content: ""; position: absolute; inset: -9px;
+    border: 1px dashed rgba(79,163,232,.55);
+    border-radius: 50%;
+    animation: spin 12s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* 框选 */
+  .marquee {
+    position: absolute;
+    border: 1px solid rgba(79,163,232,.85);
+    background: rgba(79,163,232,.14);
+    pointer-events: none;
+    z-index: 20;
+    display: none;
+  }
+
+  /* ---- 右栏 ---- */
+  .squad-row {
+    display: grid;
+    grid-template-columns: 4px 26px 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px 7px;
+    border-bottom: 1px solid var(--line-soft);
+    cursor: pointer;
+    border-left: 2px solid transparent;
+  }
+  .squad-row:hover { background: rgba(70,100,130,.16); }
+  .squad-row.sel {
+    background: linear-gradient(90deg, rgba(79,163,232,.16), rgba(79,163,232,.04));
+    border-left-color: var(--accent);
+  }
+  .squad-row .bar-k { width: 4px; height: 30px; border-radius: 2px; }
+  .squad-row .key {
+    width: 26px; height: 26px; border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: 11px; font-weight: 700; color: #06101a;
+  }
+  .squad-row .info { min-width: 0; display: block; }
+  .squad-row .nm {
+    display: block;
+    font-size: 12px; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .squad-row .sub {
+    display: block;
+    font-size: 10.5px; color: var(--mute);
+    margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .squad-row .right { display: block; text-align: right; }
+  .squad-row .alive {
+    font-family: var(--mono); font-size: 12px; color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .squad-row .alive em { color: var(--mute); font-style: normal; font-size: 10px; }
+  .squad-row .bars { margin-top: 5px; display: grid; gap: 2px; }
+  .squad-row .bars .bar { height: 3px; }
+
+  .state-pill {
+    font-size: 10px; padding: 0 5px; border-radius: 3px;
+    border: 1px solid rgba(90,130,170,.25);
+    color: var(--dim);
+  }
+  .state-pill.fight { color: #ffb4ad; border-color: rgba(200,80,60,.4); background: rgba(140,40,30,.18); }
+  .state-pill.move  { color: #a8e6bd; border-color: rgba(60,160,110,.35); background: rgba(30,110,70,.14); }
+  .state-pill.idle  { color: var(--mute); }
+
+  /* 底部命令区 */
+  .cmd { border-top: 1px solid var(--line); padding: 10px 12px 12px; background: rgba(10,15,21,.7); }
+  .cmd .sel-title {
+    display: flex; align-items: baseline; gap: 8px;
+    font-size: 11px; color: var(--mute); margin-bottom: 8px;
+  }
+  .cmd .sel-title b { color: var(--text); font-size: 13px; font-family: var(--mono); }
+  .cmd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .cmd-grid .wide { grid-column: 1 / -1; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ===== 顶栏 ===== -->
+  <div class="topbar">
+    <div class="brand">SimpleOpRTS <em>· 战斗指挥</em></div>
+    <div class="crumb"><a href="./UI原型-0-总览.html">原型总览</a> <span>/</span> <span class="muted">战斗指挥</span></div>
+    <div class="spacer"></div>
+    <div class="stat">指挥值 <b id="t-cmd" class="warn">816 / 900</b></div>
+    <div class="stat">预制模组 <b id="t-mod" class="mono">42</b></div>
+    <div class="stat">舰船 <b id="t-units" class="mono">186</b></div>
+    <div class="stat">时间 <b class="mono" id="t-time">04:12</b></div>
+  </div>
+
+  <div class="stage">
+    <!-- ===== 战场 ===== -->
+    <div class="field" id="field">
+      <div class="field-label">战术视野 · sector 7</div>
+      <div class="field-hint">
+        <span><kbd>单击</kbd> 选中小队</span>
+        <span><kbd>拖拽</kbd> 框选多队</span>
+        <span><kbd>Shift</kbd> 追加选择</span>
+      </div>
+      <div class="marquee" id="marquee"></div>
+    </div>
+
+    <!-- ===== 侧栏：只放小队 ===== -->
+    <div class="col">
+      <div class="panel-head">小队 <span class="n" id="sq-count">10 队</span></div>
+      <div class="scroll" id="squad-list"></div>
+
+      <div class="cmd">
+        <div class="sel-title">
+          已选 <b id="sel-count">0</b> 队
+          <span id="sel-cost" style="margin-left:auto"></span>
+        </div>
+        <div class="cmd-grid">
+          <button class="btn wide primary" id="cmd-move">移动到指定位置</button>
+          <button class="btn" data-cmd="阵型">阵型</button>
+          <button class="btn" data-cmd="接敌">接敌策略</button>
+          <button class="btn" data-cmd="攻击">攻击目标</button>
+          <button class="btn" data-cmd="撤退">撤退</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* -------------------------------------------------------------
+   原型数据：形状与 core.snapshot() 对齐，方便之后接真数据。
+   x / y 是战场百分比坐标（真实现里是质心世界坐标）。
+   ------------------------------------------------------------- */
+const SQUADS = [
+  { key:'A',  id:'A', name:'第一突击队', scheme:'矛隼·标准',      hue:205, alive:22, max:24, hp:.68, shield:.35, x:23, y:24, state:'fight', st:'交战中', cmd:96,  frame:'f01' },
+  { key:'B',  id:'B', name:'第二突击队', scheme:'矛隼·护盾支援',  hue:178, alive:24, max:24, hp:.92, shield:.86, x:26, y:43, state:'move',  st:'推进中', cmd:96,  frame:'f17' },
+  { key:'C',  id:'C', name:'盾墙队',     scheme:'壁垒·重装',      hue:232, alive:11, max:24, hp:.41, shield:.6,  x:21, y:61, state:'fight', st:'交战中', cmd:96,  frame:'f33' },
+  { key:'D',  id:'D', name:'游击群',     scheme:'重锤·突击',      hue:158, alive:24, max:24, hp:1,   shield:1,   x:38, y:78, state:'idle',  st:'待命',   cmd:96,  frame:'f49' },
+  { key:'S0', id:'散', name:'蓝方散兵',   scheme:'矛隼·维修支援',  hue:196, alive:4,  max:6,  hp:.55, shield:.2,  x:13, y:85, state:'fight', st:'交战中', cmd:24,  frame:'f01' },
+
+  { key:'E',  id:'E', name:'红方第一队', scheme:'矛隼·标准',      hue:6,   alive:24, max:24, hp:.88, shield:.4,  x:74, y:26, state:'fight', st:'交战中', cmd:96,  frame:'f33' },
+  { key:'F',  id:'F', name:'红方第二队', scheme:'矛隼·护盾支援',  hue:19,  alive:23, max:24, hp:.79, shield:.74, x:79, y:44, state:'move',  st:'推进中', cmd:96,  frame:'f01' },
+  { key:'G',  id:'G', name:'红方盾墙队', scheme:'壁垒·重装',      hue:37,  alive:24, max:24, hp:.95, shield:.52, x:71, y:62, state:'fight', st:'交战中', cmd:96,  frame:'f17' },
+  { key:'H',  id:'H', name:'红方游击群', scheme:'重锤·突击',      hue:55,  alive:22, max:24, hp:.66, shield:.31, x:86, y:76, state:'idle',  st:'待命',   cmd:96,  frame:'f49' },
+  { key:'S1', id:'散', name:'红方散兵',   scheme:'矛隼·维修支援',  hue:14,  alive:5,  max:6,  hp:.72, shield:.18, x:90, y:88, state:'fight', st:'交战中', cmd:24,  frame:'f01' },
+];
+
+const field = document.getElementById('field');
+const marquee = document.getElementById('marquee');
+const listEl = document.getElementById('squad-list');
+
+let selected = new Set(['A']);
+// 蓝方色相 150~260（含青绿），红方 0~60
+const isAlly = s => s.hue >= 120;
+
+/* ---------- 战场渲染 ---------- */
+
+function hue(s) { return `hsl(${s.hue}, 72%, 58%)`; }
+
+function buildField() {
+  // 先清掉上一次画的
+  field.querySelectorAll('.field-ship, .marker').forEach(n => n.remove());
+
+  for (const s of SQUADS) {
+    // 每队画一圈小舰，位置按索引伪随机，刷新不变
+    const n = Math.min(s.alive, 13);
+    for (let i = 0; i < n; i++) {
+      const a = (i * 2.399) + (s.id.charCodeAt(0) % 7);
+      const r = 16 + (i % 6) * 5.5;
+      const el = document.createElement('div');
+      el.className = `field-ship f${frameNo(s.frame)}`;
+      el.style.left = `calc(${s.x}% + ${Math.cos(a) * r}px)`;
+      el.style.top  = `calc(${s.y}% + ${Math.sin(a) * r}px)`;
+      el.style.transform = `translate(-50%,-50%) rotate(${(a * 57.3 + 180) % 360}deg)`;
+      // 阵营着色：原始切片是中性灰，用 sepia + hue-rotate 染色
+      el.style.filter = isAlly(s)
+        ? 'sepia(.85) saturate(3.2) hue-rotate(168deg) brightness(1.05)'
+        : 'sepia(.85) saturate(3.2) hue-rotate(-22deg) brightness(1.05)';
+      field.appendChild(el);
+    }
+
+    // 小队标记（质心）
+    const m = document.createElement('div');
+    m.className = 'marker' + (selected.has(s.key) ? ' sel' : '');
+    m.dataset.key = s.key;
+    m.style.left = s.x + '%';
+    m.style.top = s.y + '%';
+    m.style.background = hue(s);
+    m.innerHTML = `${s.id}<span class="cnt">${s.alive}/${s.max}</span>`;
+    m.addEventListener('click', e => {
+      e.stopPropagation();
+      pick(m.dataset.key, e.shiftKey);
+    });
+    field.appendChild(m);
+  }
+}
+
+function frameNo(f) { return f.slice(1); }
+
+/* ---------- 侧栏 ---------- */
+
+function buildList() {
+  listEl.innerHTML = SQUADS.map(s => {
+    const key = s.key;
+    const sel = selected.has(key) ? ' sel' : '';
+    return `
+      <div class="squad-row${sel}" data-key="${key}">
+        <span class="bar-k" style="background:${hue(s)}"></span>
+        <span class="key" style="background:${hue(s)}">${s.id}</span>
+        <span class="info">
+          <span class="nm">${s.name}</span>
+          <span class="sub">${s.scheme}</span>
+          <span class="bars">
+            <span class="bar hp"><i style="width:${s.hp * 100}%"></i></span>
+            <span class="bar sh"><i style="width:${s.shield * 100}%"></i></span>
+          </span>
+        </span>
+        <span class="right">
+          <span class="alive">${s.alive}<em>/${s.max}</em></span>
+          <span class="sub" style="display:block">
+            <span class="state-pill ${s.state}">${s.st}</span>
+          </span>
+        </span>
+      </div>`;
+  }).join('');
+
+  listEl.querySelectorAll('.squad-row').forEach(row => {
+    row.addEventListener('click', e => pick(row.dataset.key, e.shiftKey));
+  });
+}
+
+/* ---------- 选择 ---------- */
+
+function pick(key, additive) {
+  if (!additive) selected.clear();
+  if (selected.has(key)) selected.delete(key);
+  else selected.add(key);
+  refreshSelection();
+}
+
+function refreshSelection() {
+  buildList();
+  document.querySelectorAll('.marker').forEach(m => {
+    m.classList.toggle('sel', selected.has(m.dataset.key));
+  });
+  const n = selected.size;
+  document.getElementById('sel-count').textContent = n;
+  let cost = 0, units = 0;
+  for (const s of SQUADS) if (selected.has(s.key)) { cost += s.cmd; units += s.alive; }
+  document.getElementById('sel-cost').innerHTML =
+    `<span class="mono">${units} 舰 · ${cost} 指挥值</span>`;
+  document.getElementById('cmd-move').disabled = n === 0;
+}
+
+/* ---------- 框选 ---------- */
+
+let drag = null;
+field.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  if (e.target.closest('.marker')) return;
+  const r = field.getBoundingClientRect();
+  drag = { x0: e.clientX - r.left, y0: e.clientY - r.top, r };
+  marquee.style.display = 'block';
+  marquee.style.left = drag.x0 + 'px';
+  marquee.style.top = drag.y0 + 'px';
+  marquee.style.width = '0px';
+  marquee.style.height = '0px';
+});
+
+field.addEventListener('mousemove', e => {
+  if (!drag) return;
+  const r = drag.r;
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  const left = Math.min(x, drag.x0), top = Math.min(y, drag.y0);
+  const w = Math.abs(x - drag.x0), h = Math.abs(y - drag.y0);
+  marquee.style.left = left + 'px';
+  marquee.style.top = top + 'px';
+  marquee.style.width = w + 'px';
+  marquee.style.height = h + 'px';
+  drag.box = { left, top, w, h };
+});
+
+window.addEventListener('mouseup', e => {
+  if (!drag) return;
+  marquee.style.display = 'none';
+  const box = drag.box;
+  const additive = e.shiftKey;
+  const saved = drag; drag = null;
+  if (!box || box.w < 6 || box.h < 6) { if (!additive) { selected.clear(); refreshSelection(); } return; }
+
+  if (!additive) selected.clear();
+  document.querySelectorAll('.marker').forEach(m => {
+    const mx = parseFloat(m.style.left) / 100 * saved.r.width;
+    const my = parseFloat(m.style.top) / 100 * saved.r.height;
+    if (mx >= box.left && mx <= box.left + box.w && my >= box.top && my <= box.top + box.h) {
+      selected.add(m.dataset.key);
+    }
+  });
+  refreshSelection();
+});
+
+/* ---------- 命令按钮：原型只给反馈 ---------- */
+
+document.querySelectorAll('[data-cmd]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (!selected.size) return;
+    const n = selected.size;
+    btn.textContent = `${btn.dataset.cmd} ✓`;
+    setTimeout(() => { btn.textContent = btn.dataset.cmd; }, 700);
+  });
+});
+
+/* ---------- 启动 ---------- */
+buildField();
+buildList();
+refreshSelection();
+</script>
+</body>
+</html>

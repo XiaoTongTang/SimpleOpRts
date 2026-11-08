@@ -1,0 +1,533 @@
+/* =============================================================
+   SimpleOpRTS · UI 原型共用样式
+   三张原型（战斗指挥 / 舰船设计 / 小队构筑）共用这套设计语言。
+   目标不是"最终美术"，而是把信息层级和交互路径摆到能评审的程度。
+   ============================================================= */
+
+:root {
+  --bg:        #06080b;
+  --bg-2:      #0a0e14;
+  --panel:     rgba(13, 19, 27, .94);
+  --panel-2:   rgba(19, 27, 38, .96);
+  --panel-3:   rgba(26, 36, 49, .98);
+  --line:      rgba(88, 126, 166, .22);
+  --line-soft: rgba(88, 126, 166, .10);
+  --text:      #dbe7f3;
+  --dim:       #8fa3b7;
+  --mute:      #5d7288;
+  --accent:    #4fa3e8;
+  --accent-dim: rgba(79, 163, 232, .16);
+  --ok:        #7ed957;
+  --warn:      #e8c14a;
+  --danger:    #e8564f;
+  --ally:      hsl(205, 72%, 58%);
+  --enemy:     hsl(6, 72%, 58%);
+  --font: "Segoe UI", system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+  --mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+button { font: inherit; color: inherit; }
+
+/* ---------- 通用布局 ---------- */
+
+.app { display: flex; flex-direction: column; height: 100%; }
+
+.topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 14px;
+  height: 42px;
+  background: linear-gradient(180deg, rgba(20, 28, 38, .96), rgba(10, 15, 21, .96));
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  font-size: 12px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: #93b4d2;
+  font-weight: 600;
+}
+.brand em { color: var(--mute); font-style: normal; letter-spacing: .06em; }
+
+.topbar .spacer { flex: 1; }
+
+.stat {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--mute);
+  letter-spacing: .04em;
+}
+.stat b {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.stat b.warn { color: var(--warn); }
+
+.crumb {
+  display: flex; gap: 6px; align-items: center;
+  font-size: 11px; color: var(--mute);
+}
+.crumb a { color: var(--dim); text-decoration: none; border-bottom: 1px dotted rgba(140,170,200,.3); }
+.crumb a:hover { color: var(--accent); }
+
+/* 三列骨架 */
+.body { flex: 1; display: grid; min-height: 0; }
+.cols-3 { grid-template-columns: 268px minmax(0, 1fr) 384px; }
+.cols-3-narrow { grid-template-columns: 240px minmax(0, 1fr) 348px; }
+
+.col {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  overflow: hidden;
+}
+.col:last-child { border-right: 0; border-left: 1px solid var(--line); }
+.col.center { background: radial-gradient(ellipse at 50% 42%, #0d1420 0%, #070a0e 62%, #05070a 100%); }
+
+/* ---------- 面板 / 卡片 ---------- */
+
+.panel-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px 8px;
+  font-size: 11px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: #7f9ab4;
+  border-bottom: 1px solid var(--line-soft);
+}
+.panel-head .n {
+  margin-left: auto;
+  font-family: var(--mono);
+  letter-spacing: 0;
+  color: var(--mute);
+}
+
+.scroll { flex: 1; min-height: 0; overflow: auto; }
+.scroll::-webkit-scrollbar { width: 8px; }
+.scroll::-webkit-scrollbar-thumb { background: rgba(90,130,170,.22); border-radius: 4px; }
+.scroll::-webkit-scrollbar-track { background: transparent; }
+
+.sec {
+  padding: 10px 12px 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.sec:last-child { border-bottom: 0; }
+
+.sec-title {
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--mute);
+  margin: 0 0 8px;
+}
+
+/* ---------- 列表行 ---------- */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background .12s, border-color .12s;
+}
+.row:hover { background: rgba(70, 100, 130, .18); }
+.row.sel {
+  background: rgba(79, 163, 232, .14);
+  border-color: rgba(79, 163, 232, .42);
+}
+.row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .num { font-family: var(--mono); font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+.dot {
+  width: 9px; height: 9px; border-radius: 2px; flex: none;
+  box-shadow: 0 0 8px currentColor;
+}
+
+/* ---------- 数值 / 条 ---------- */
+
+.kv {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--dim);
+  padding: 3px 0;
+}
+.kv b {
+  font-family: var(--mono);
+  font-weight: 500;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.kv b.good { color: var(--ok); }
+.kv b.warn { color: var(--warn); }
+.kv b.bad  { color: var(--danger); }
+
+.bar {
+  position: relative;
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(90, 130, 170, .16);
+  overflow: hidden;
+}
+.bar > i {
+  position: absolute; inset: 0 auto 0 0;
+  display: block;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width .18s;
+}
+.bar.hp > i   { background: linear-gradient(90deg, #4fd97a, #7ed957); }
+.bar.sh > i   { background: linear-gradient(90deg, #3f8fdc, #6fc2ff); }
+.bar.cap > i  { background: linear-gradient(90deg, #3f7fdc, #6fa8ff); }
+.bar.over > i { background: linear-gradient(90deg, #d8453c, #ff7a6f); }
+
+/* 分段承载条：武器蓝 / 插件绿 / 支援黄 */
+.segbar {
+  display: flex; height: 6px; border-radius: 3px; overflow: hidden;
+  background: rgba(90, 130, 170, .16);
+}
+.segbar > i { display: block; height: 100%; }
+.segbar > i.w { background: #4f8fe8; }
+.segbar > i.p { background: #57c98a; }
+.segbar > i.s { background: #e0b64a; }
+
+/* ---------- 标签 / 按钮 ---------- */
+
+.tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  letter-spacing: .04em;
+  color: var(--dim);
+  background: rgba(90, 130, 170, .13);
+  border: 1px solid rgba(90, 130, 170, .18);
+  line-height: 1.5;
+}
+.tag.s { color: #86c5ff; border-color: rgba(79, 163, 232, .3);  background: rgba(79, 163, 232, .1); }
+.tag.m { color: #d0b0ff; border-color: rgba(160, 120, 240, .3); background: rgba(140, 100, 230, .1); }
+.tag.l { color: #ffb08a; border-color: rgba(230, 120, 80, .32); background: rgba(220, 110, 70, .1); }
+.tag.ok { color: #a8e6bd; border-color: rgba(60, 160, 110, .32); background: rgba(30, 110, 70, .16); }
+.tag.bad{ color: #ffb4ad; border-color: rgba(200, 80, 60, .35); background: rgba(140, 40, 30, .2); }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(90, 130, 170, .3);
+  background: rgba(60, 90, 120, .26);
+  color: #cfe0f0;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.btn:hover { background: rgba(80, 120, 160, .4); border-color: rgba(120, 165, 210, .45); }
+.btn:active { transform: translateY(1px); }
+.btn.primary {
+  background: rgba(79, 163, 232, .18);
+  border-color: rgba(79, 163, 232, .5);
+  color: #bfe0ff;
+}
+.btn.primary:hover { background: rgba(79, 163, 232, .3); }
+.btn.mini { padding: 2px 7px; font-size: 11px; }
+.btn.ghost { background: transparent; border-color: rgba(90,130,170,.22); }
+.btn[disabled] { opacity: .4; cursor: not-allowed; }
+
+.btns { display: flex; gap: 6px; }
+.btns > .btn { flex: 1; }
+
+.stepper { display: inline-flex; align-items: center; gap: 4px; }
+.stepper button {
+  width: 22px; height: 20px; padding: 0;
+  border-radius: 4px;
+  border: 1px solid rgba(90, 130, 170, .3);
+  background: rgba(60, 90, 120, .26);
+  color: #cfe0f0; cursor: pointer; font-size: 12px; line-height: 1;
+}
+.stepper button:hover { background: rgba(80, 120, 160, .42); }
+.stepper b {
+  min-width: 30px; text-align: center;
+  font-family: var(--mono); font-weight: 500; font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 舰船像素图 ---------- */
+
+/* 单帧 32×32，用背景定位从原图抠出来；image-rendering 保持硬边 */
+.sprite {
+  image-rendering: pixelated;
+  background-image: url("../../imgs/护卫舰素材1.png");
+  background-repeat: no-repeat;
+  flex: none;
+}
+
+.sprite.xs { width: 32px;  height: 32px;  background-size: 256px  256px; --u: 32px; }
+.sprite.sm { width: 64px;  height: 64px;  background-size: 512px  512px; --u: 64px; }
+.sprite.md { width: 128px; height: 128px; background-size: 1024px 1024px; --u: 128px; }
+.sprite.lg { width: 288px; height: 288px; background-size: 2304px 2304px; --u: 288px; }
+/* 卡片里的展示尺寸 */
+.sprite.card { width: 96px; height: 96px; background-size: 768px 768px; --u: 96px; }
+/* 列表行里的小缩略图 */
+.sprite.mini { width: 26px; height: 26px; background-size: 208px 208px; --u: 26px; }
+
+/* 帧定位：frigate_NN 在 8×8 网格里的**行**（列都是 0）
+   frigate_01 → 行 0 · frigate_17 → 行 2 · frigate_33 → 行 4 · frigate_49 → 行 6
+   一格 = var(--u)，所以纵向偏移 = -行 × var(--u) */
+.f01 { background-position: 0 0; }
+.f17 { background-position: 0 calc(-2 * var(--u)); }
+.f33 { background-position: 0 calc(-4 * var(--u)); }
+.f49 { background-position: 0 calc(-6 * var(--u)); }
+
+/* 战场里的小单位：用 xs 缩放，朝向右上 */
+.field-ship {
+  position: absolute;
+  --u: 26px;
+  width: 26px; height: 26px;
+  background-image: url("../../imgs/护卫舰素材1.png");
+  background-size: 208px 208px;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  opacity: .92;
+  pointer-events: none;
+  transform-origin: 50% 50%;
+}
+
+/* ---------- 杂项 ---------- */
+
+.muted { color: var(--mute); }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.hr { height: 1px; background: var(--line-soft); margin: 10px 0; }
+.foot {
+  flex: none;
+  padding: 7px 12px;
+  font-size: 11px;
+  color: var(--mute);
+  border-top: 1px solid var(--line-soft);
+  background: rgba(8, 12, 18, .6);
+}
+.hint { color: var(--mute); font-size: 11px; }
+
+/* =============================================================
+   像素风皮肤
+   -------------------------------------------------------------
+   做法：全部硬角（radius 0）+ 2px 描边 + 内外硬投影（无柔光），
+   按下时整块位移 3px 并抽掉投影，做出"按进去"的手感。
+   仅覆盖组件，不动布局尺寸。
+   ============================================================= */
+
+:root {
+  --px-edge:      #3d6183;   /* 亮边 */
+  --px-edge-dim:  #24405a;
+  --px-dark:      #070c12;   /* 暗边 / 投影 */
+  --px-face:      #16222e;
+  --px-face-hi:   #1d2e3e;
+  --px-face-sel:  #1b3550;
+  --px-hi:        #7fc0f5;
+}
+
+/* 面板：硬角 + 双层描边 */
+.col,
+.card,
+.sec,
+.panel-head,
+.drawer,
+.drawer-head,
+.drawer-foot,
+.addbox,
+.entry,
+.shipcard,
+.big4 .cell,
+.hullbtn,
+.slot,
+.item,
+.state-pill,
+.tag,
+.bar,
+.segbar,
+.bar > i,
+.segbar > i,
+.row,
+.squad-row,
+#msg,
+.warnline,
+.warn-box,
+.tpl-list {
+  border-radius: 0;
+}
+
+.col {
+  border-right: 2px solid var(--px-dark);
+  border-left: 2px solid rgba(255, 255, 255, .03);
+}
+.col:last-child { border-left: 2px solid var(--px-dark); }
+
+.card {
+  border: 2px solid var(--px-edge-dim);
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, .6);
+}
+
+.panel-head {
+  border-bottom: 2px solid var(--px-edge-dim);
+  background: repeating-linear-gradient(
+    90deg, rgba(255,255,255,.025) 0 2px, transparent 2px 4px);
+  text-shadow: 1px 1px 0 #000;
+}
+
+/* 按钮：像素凸起 */
+button,
+.btn {
+  border-radius: 0;
+  border: 2px solid var(--px-edge);
+  background: var(--px-face);
+  box-shadow:
+    inset 2px 2px 0 rgba(255, 255, 255, .07),
+    inset -2px -2px 0 var(--px-dark),
+    3px 3px 0 var(--px-dark);
+  text-shadow: 1px 1px 0 #000;
+  transition: none;
+}
+button:hover,
+.btn:hover {
+  background: var(--px-face-hi);
+  border-color: var(--px-hi);
+}
+button:active,
+.btn:active {
+  transform: translate(3px, 3px);
+  box-shadow: inset 2px 2px 0 var(--px-dark);
+}
+.btn.primary {
+  background: var(--px-face-sel);
+  border-color: var(--px-hi);
+  color: #d6ecff;
+}
+.btn.primary:hover { background: #24476a; }
+.btn.ghost { background: rgba(10, 16, 23, .6); }
+
+.stepper button {
+  width: 22px; height: 20px;
+  border: 2px solid var(--px-edge);
+  box-shadow: inset -2px -2px 0 var(--px-dark);
+}
+.stepper button:active { transform: translate(2px, 2px); box-shadow: none; }
+
+/* 列表行 / 卡片 */
+.row { border: 2px solid transparent; }
+.row:hover { background: rgba(70, 100, 130, .2); border-color: var(--px-edge-dim); }
+.row.sel {
+  background: var(--px-face-sel);
+  border-color: var(--px-hi);
+  box-shadow: inset 0 0 0 1px rgba(127, 192, 245, .25);
+}
+
+.slot,
+.item,
+.entry,
+.shipcard,
+.big4 .cell,
+.hullbtn,
+.addbox {
+  border: 2px solid var(--px-edge-dim);
+  background: var(--px-face);
+}
+.slot:hover,
+.item:hover,
+.hullbtn:hover,
+.shipcard:hover {
+  border-color: var(--px-hi);
+  background: var(--px-face-hi);
+}
+.slot.active,
+.item.current {
+  border-color: var(--px-hi);
+  background: var(--px-face-sel);
+}
+
+.hullbtn { box-shadow: inset 2px 2px 0 rgba(255,255,255,.04); }
+
+/* 标签 */
+.tag {
+  border-width: 1px;
+  border-style: solid;
+  text-shadow: 1px 1px 0 rgba(0,0,0,.7);
+}
+
+/* 条：像素分段 */
+.bar { border: 1px solid var(--px-dark); height: 6px; }
+.bar > i { border-radius: 0; }
+.segbar { border: 1px solid var(--px-dark); height: 8px; }
+
+/* 弹窗 */
+.drawer {
+  border-left: 3px solid var(--px-edge);
+  box-shadow: -8px 0 0 rgba(0, 0, 0, .55);
+  background: #0d161f;
+}
+.drawer-head { border-bottom: 2px solid var(--px-edge-dim); }
+.drawer-foot { border-top: 2px solid var(--px-edge-dim); }
+.drawer-mask { backdrop-filter: none; background: rgba(3, 6, 10, .72); }
+
+/* 输入控件 */
+select,
+input {
+  border-radius: 0;
+  border: 2px solid var(--px-edge-dim);
+  background: #0b141c;
+  color: var(--text);
+}
+select:focus { outline: none; border-color: var(--px-hi); }
+
+/* 小队标记：方形像素徽章（用 body 前缀压过各页面自己的圆角定义） */
+body .marker {
+  border-radius: 0;
+  border-width: 2px;
+  border-color: var(--px-dark);
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, .65);
+}
+body .marker.sel {
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, .65), 0 0 0 2px var(--px-hi);
+}
+body .marker.sel::after { border-radius: 0; }
+.squad-row { border-left-width: 3px; }
+.squad-row.sel { border-left-color: var(--px-hi); }
+body .squad-row .key { border-radius: 0; }
+
+/* 战场：像素网格更硬 */
+.field::before { background-size: 32px 32px; }
+
+/* 滚动条也方一点 */
+.scroll::-webkit-scrollbar { width: 10px; }
+.scroll::-webkit-scrollbar-thumb {
+  background: var(--px-edge-dim);
+  border-radius: 0;
+  border: 2px solid var(--px-dark);
+}

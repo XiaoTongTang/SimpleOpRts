@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>UI 原型 2 · 舰船设计界面</title>
+<link rel="stylesheet" href="./UI原型.css">
+<style>
+  /* ---- 中栏：船体展示 ---- */
+  .hull-stage {
+    position: relative;
+    flex: 1;
+    display: grid;
+    place-items: center;
+    min-height: 0;
+    /* 底部留给标题条，船图在上方区域的视觉中心而不是整个面板的中心 */
+    padding-bottom: 64px;
+    background:
+      radial-gradient(ellipse 46% 46% at 50% 48%, rgba(79,163,232,.10), transparent 70%),
+      radial-gradient(ellipse 70% 60% at 50% 50%, #0c1622 0%, #070a0f 65%, #05070a 100%);
+  }
+  /* 展示台上的同心定位环：挂在船图容器上，保证和船图绝对同心 */
+  .hull-wrap::before, .hull-wrap::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    border: 1px solid rgba(79,163,232,.10);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .hull-wrap::before { width: 420px; height: 420px; }
+  .hull-wrap::after  { width: 300px; height: 300px; border-style: dashed; opacity: .7; }
+
+  .hull-wrap { position: relative; z-index: 2; }
+  .hull-sprite {
+    position: relative;
+    z-index: 1;
+    filter: drop-shadow(0 14px 40px rgba(0,0,0,.85)) drop-shadow(0 0 26px rgba(79,163,232,.16));
+  }
+
+  /* 槽位引脚：叠在船体上，显示「代号-装备名」 */
+  .pin {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    padding: 2px 7px;
+    border-radius: 5px;
+    display: inline-flex; align-items: center; gap: 2px;
+    font-size: 9.5px; font-weight: 600;
+    letter-spacing: .02em;
+    white-space: nowrap;
+    max-width: 104px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #cfe4f7;
+    background: rgba(10, 19, 29, .94);
+    border: 1px solid rgba(79,163,232,.5);
+    cursor: pointer;
+    z-index: 3;
+    transition: transform .12s, box-shadow .12s, border-color .12s;
+  }
+  .pin.plugin { border-color: rgba(87,201,138,.5); }
+  .pin:hover  { transform: translate(-50%,-50%) scale(1.08); }
+  .pin.filled { background: rgba(79,163,232,.22); box-shadow: 0 0 14px rgba(79,163,232,.3); }
+  .pin.plugin.filled { background: rgba(87,201,138,.2); box-shadow: 0 0 14px rgba(87,201,138,.28); }
+  .pin.empty { color: var(--mute); border-style: dashed; background: rgba(10,19,29,.7); }
+  .pin.active {
+    box-shadow: 0 0 0 3px rgba(79,163,232,.35), 0 0 20px rgba(79,163,232,.5);
+    border-color: #9dd0ff;
+  }
+
+  .hull-caption {
+    position: absolute; bottom: 22px; left: 0; right: 0;
+    text-align: center; z-index: 2;
+  }
+  .hull-caption .h1 { font-size: 17px; letter-spacing: .04em; }
+  .hull-caption .h2 { font-size: 11px; color: var(--mute); margin-top: 5px; letter-spacing: .1em; }
+
+  .stage-tools {
+    position: absolute; top: 14px; right: 16px; z-index: 3;
+    display: flex; gap: 6px;
+  }
+
+  /* ---- 右栏：当前船体按钮 ---- */
+  .hullbtn-wrap { flex: none; padding: 8px 12px; border-bottom: 1px solid var(--line-soft); }
+
+  .hullbtn {
+    display: grid;
+    grid-template-columns: 64px 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 7px 9px;
+    border-radius: 8px;
+    border: 1px solid rgba(79,163,232,.32);
+    background: linear-gradient(180deg, rgba(28,40,54,.8), rgba(16,24,34,.9));
+    cursor: pointer;
+    transition: border-color .12s, background .12s;
+  }
+  .hullbtn:hover { border-color: rgba(79,163,232,.62); background: rgba(32,46,62,.9); }
+  .hullbtn .art {
+    display: grid; place-items: center;
+    width: 64px; height: 64px;
+    border-radius: 6px;
+    background: radial-gradient(ellipse at 50% 50%, rgba(79,163,232,.14), transparent 72%);
+  }
+  .hullbtn .nm { font-size: 13px; }
+  .hullbtn .sub { font-size: 10.5px; color: var(--mute); margin-top: 3px; letter-spacing: .04em; }
+  .hullbtn .go { font-size: 10px; color: var(--mute); letter-spacing: .06em; }
+
+  /* 点击「当前船体」时中栏船体闪一下 */
+  @keyframes hullPulse {
+    0%   { filter: drop-shadow(0 0 0 rgba(79,163,232,0)); }
+    40%  { filter: drop-shadow(0 0 26px rgba(79,163,232,.85)); }
+    100% { filter: drop-shadow(0 14px 40px rgba(0,0,0,.85)) drop-shadow(0 0 26px rgba(79,163,232,.16)); }
+  }
+  .hull-sprite.pulse { animation: hullPulse .7s ease-out; }
+
+  /* ---- 右栏：分组小标题 ---- */
+  .group + .group { margin-top: 16px; }
+  .gtitle {
+    display: flex; align-items: baseline; gap: 8px;
+    font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    color: #7f9ab4;
+    margin: 0 0 8px;
+    padding-left: 8px;
+    border-left: 3px solid var(--px-edge, #3d6183);
+    text-shadow: 1px 1px 0 #000;
+  }
+  .gtitle .n {
+    margin-left: auto; font-family: var(--mono);
+    letter-spacing: 0; text-transform: none; color: var(--mute);
+  }
+
+  /* ---- 右栏：槽位行 ---- */
+  /* 武器槽：代号 · 尺寸 · 装备 · 承载 · 拆除　　插件槽不分尺寸，去掉第二列 */
+  .slot {
+    display: grid;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 9px;
+    border-radius: 0;
+    border: 1px solid var(--line-soft);
+    background: rgba(20, 29, 40, .55);
+    cursor: pointer;
+    transition: border-color .12s, background .12s;
+  }
+  .slot.weapon { grid-template-columns: 26px 22px 1fr 34px 44px; }
+  .slot.plugin { grid-template-columns: 26px 1fr 34px 44px; }
+  .slot + .slot { margin-top: 6px; }
+  .slot:hover { border-color: rgba(79,163,232,.45); background: rgba(28, 41, 56, .7); }
+  .slot.active { border-color: rgba(79,163,232,.7); background: rgba(79,163,232,.12); }
+
+  .slot .sid {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: #9dc8ec;
+    letter-spacing: 0;
+  }
+  .slot .ssize {
+    display: grid; place-items: center;
+    height: 20px; border-radius: 4px;
+    font-family: var(--mono); font-size: 10px;
+    color: var(--dim);
+    background: rgba(90,130,170,.13);
+    border: 1px solid rgba(90,130,170,.2);
+  }
+  .slot .ssize.none { color: var(--mute); border-style: dashed; }
+  .slot .body { min-width: 0; }
+  .slot .nm { font-size: 12.5px; }
+  .slot .sub { font-size: 10.5px; color: var(--mute); margin-top: 2px; }
+  .slot .cap {
+    text-align: right;
+    font-family: var(--mono); font-size: 12px; color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .slot .cap em { display: block; color: var(--mute); font-style: normal; font-size: 9px; letter-spacing: .04em; }
+  .slot .empty-nm { color: var(--mute); }
+
+  /* ---- 二级面板：可装装备清单 ---- */
+  .drawer-mask {
+    position: fixed; inset: 42px 0 0 0;
+    background: rgba(3, 6, 10, .55);
+    backdrop-filter: blur(2px);
+    opacity: 0; pointer-events: none;
+    transition: opacity .16s;
+    z-index: 40;
+  }
+  .drawer-mask.open { opacity: 1; pointer-events: auto; }
+
+  .drawer {
+    position: fixed; top: 42px; right: 0; bottom: 0;
+    width: 512px;
+    background: var(--panel-3);
+    border-left: 1px solid rgba(79,163,232,.3);
+    box-shadow: -24px 0 60px rgba(0,0,0,.6);
+    transform: translateX(100%);
+    transition: transform .2s cubic-bezier(.2,.9,.3,1);
+    z-index: 41;
+    display: flex; flex-direction: column;
+  }
+  .drawer.open { transform: translateX(0); }
+
+  .drawer-head {
+    flex: none;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .drawer-head .t { font-size: 13px; }
+  .drawer-head .s { font-size: 11px; color: var(--mute); margin-top: 3px; }
+
+  .item {
+    display: grid;
+    grid-template-columns: 1fr 52px 62px 76px;
+    gap: 8px;
+    align-items: center;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--line-soft);
+    cursor: pointer;
+  }
+  .item:hover { background: rgba(70,100,130,.18); }
+  .item.current { background: rgba(79,163,232,.1); }
+  .item.disabled { opacity: .42; cursor: not-allowed; }
+  /* 船体行：多一列缩略图（64 = sprite.sm 原尺寸，避免缩略图溢出到相邻行） */
+  .item.hull { grid-template-columns: 64px 1fr 46px 46px 52px; }
+  .item.hull .art {
+    display: grid; place-items: center;
+    width: 64px; height: 64px;
+    background: radial-gradient(ellipse at 50% 50%, rgba(79,163,232,.12), transparent 72%);
+  }
+  .item .nm { font-size: 12.5px; display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; }
+  .item .desc { font-size: 10.5px; color: var(--mute); margin-top: 3px; }
+  .item .num { font-family: var(--mono); font-size: 11px; color: var(--dim); text-align: right; }
+  .item .num em { color: var(--mute); font-style: normal; display: block; font-size: 9.5px; letter-spacing: .04em; }
+
+  .drawer-foot {
+    flex: none; padding: 10px 14px;
+    border-top: 1px solid var(--line);
+    display: flex; gap: 8px; align-items: center;
+    font-size: 11px; color: var(--mute);
+  }
+
+  /* ===========================================================
+     像素化覆盖（放在本页样式最后，压过前面所有柔光/圆角定义）
+     =========================================================== */
+
+  /* 船体按钮 */
+  .hullbtn {
+    border-radius: 0;
+    border: 2px solid var(--px-edge);
+    background: var(--px-face);
+    box-shadow: inset 2px 2px 0 rgba(255,255,255,.06), inset -2px -2px 0 var(--px-dark);
+  }
+  .hullbtn:hover { background: var(--px-face-hi); border-color: var(--px-hi); }
+  .hullbtn:active { transform: translate(2px, 2px); box-shadow: none; }
+  .hullbtn .art { background: none; border: 1px solid var(--px-edge-dim); }
+
+  /* 槽位行 */
+  .slot {
+    border-radius: 0;
+    border: 2px solid var(--px-edge-dim);
+    background: var(--px-face);
+    box-shadow: inset 1px 1px 0 rgba(255,255,255,.04);
+  }
+  .slot:hover { border-color: var(--px-hi); background: var(--px-face-hi); }
+  .slot.active { border-color: var(--px-hi); background: var(--px-face-sel); }
+  .slot .ssize {
+    border-radius: 0;
+    border: 1px solid var(--px-edge);
+    background: #0b141c;
+  }
+  .slot .ssize.none { border-style: dashed; }
+
+  /* 二级面板 */
+  .drawer {
+    border-left: 3px solid var(--px-edge);
+    box-shadow: -8px 0 0 rgba(0,0,0,.55);
+    background: #0b141c;
+  }
+  .drawer-head { border-bottom: 2px solid var(--px-edge-dim); }
+  .drawer-foot { border-top: 2px solid var(--px-edge-dim); }
+  .drawer-mask { backdrop-filter: none; background: rgba(3,6,10,.74); }
+
+  .item {
+    border-top: 0;
+    border-right: 0;
+    border-bottom: 1px solid rgba(88,126,166,.14);
+    border-left: 3px solid transparent;
+  }
+  .item:hover { background: var(--px-face-hi); }
+  .item.current {
+    background: var(--px-face-sel);
+    border-left-color: var(--px-hi);
+  }
+  .item.hull { border-left-width: 3px; }
+
+  /* 船体展示台：圆弧环改成像素取景框 */
+  .hull-stage { padding-bottom: 64px; }
+  .hull-wrap::before,
+  .hull-wrap::after {
+    border-radius: 0;
+    border: 2px solid rgba(79,163,232,.10);
+  }
+  .hull-wrap::after { border-style: dashed; }
+
+  /* 引脚 */
+  .pin { border-radius: 0; border-width: 2px; }
+  .pin:hover { transform: translate(-50%,-50%); box-shadow: 2px 2px 0 var(--px-dark); }
+
+  /* 顶栏工具按钮 */
+  .stage-tools .btn {
+    border-radius: 0;
+    border-width: 2px;
+    text-shadow: 1px 1px 0 #000;
+  }
+
+  /* 标题条 */
+  .panel-head, .gtitle {
+    text-shadow: 1px 1px 0 #000;
+  }
+
+  /* 承载条：像素硬边 */
+  .segbar { border: 1px solid var(--px-dark); }
+  .segbar > i { border-radius: 0; }
+
+  /* ---- 删除方案 / 拆除装备：像素小按钮 ---- */
+  .delx {
+    flex: none;
+    width: 18px; height: 18px; padding: 0;
+    display: grid; place-items: center;
+    border-radius: 0;
+    border: 1px solid var(--px-edge-dim);
+    background: #0b141c;
+    color: #647e97;
+    font-size: 11px; line-height: 1;
+    cursor: pointer;
+    box-shadow: inset 1px 1px 0 rgba(255,255,255,.05), inset -1px -1px 0 var(--px-dark);
+  }
+  .delx:hover {
+    border-color: var(--danger);
+    color: #ffb3ae;
+    background: rgba(232,86,79,.18);
+  }
+  .delx:active { transform: translate(1px, 1px); box-shadow: none; }
+
+  .del-btn {
+    height: 22px; padding: 0 4px;
+    display: grid; place-items: center;
+    border-radius: 0;
+    border: 1px solid var(--px-edge-dim);
+    background: #0b141c;
+    color: #6f8aa4;
+    font-size: 10.5px; letter-spacing: .04em; line-height: 1;
+    cursor: pointer;
+    box-shadow: inset 1px 1px 0 rgba(255,255,255,.05), inset -1px -1px 0 var(--px-dark);
+  }
+  .del-btn:hover {
+    border-color: var(--danger);
+    color: #ffb3ae;
+    background: rgba(232,86,79,.18);
+  }
+  .del-btn:active { transform: translate(1px, 1px); box-shadow: none; }
+  .del-btn:disabled {
+    color: #3c4d5e;
+    border-color: rgba(36,64,90,.6);
+    background: #0a1118;
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="topbar">
+    <div class="brand">SimpleOpRTS <em>· 舰船设计</em></div>
+    <div class="crumb"><a href="./UI原型-0-总览.html">原型总览</a> <span>/</span> <span class="muted">舰船设计</span></div>
+    <div class="spacer"></div>
+    <div class="stat">方案 <b class="mono" id="t-ships">6</b></div>
+    <div class="stat">承载 <b class="mono warn" id="t-cap">6 / 14</b></div>
+    <div class="stat">工时 <b class="mono" id="t-bt">10.0s</b></div>
+  </div>
+
+  <div class="body cols-3">
+
+    <!-- ===== 左：方案库 ===== -->
+    <div class="col">
+      <div class="panel-head">舰船方案 <span class="n" id="lib-n">6</span></div>
+      <div style="padding:8px 10px;border-bottom:1px solid var(--line-soft)" id="libbar">
+        <button class="btn primary" style="width:100%">＋ 新建方案</button>
+      </div>
+      <div class="scroll" id="lib"></div>
+      <div class="foot">点方案切换 · ✕ 删方案 · 右侧槽位可换装或拆除</div>
+    </div>
+
+    <!-- ===== 中：船体 ===== -->
+    <div class="col center">
+      <div class="panel-head">船体 <span class="n" id="hull-n">矛隼级 · frigate · T1</span></div>
+      <div class="hull-stage">
+        <div class="stage-tools">
+          <button class="btn mini ghost">俯视图</button>
+          <button class="btn mini ghost">重命名</button>
+          <button class="btn mini ghost">另存为</button>
+        </div>
+
+        <div class="hull-wrap" id="hull-wrap">
+          <div class="sprite lg f01 hull-sprite" id="hull-sprite"></div>
+        </div>
+
+        <div class="hull-caption">
+          <div class="h1" id="cap-name">矛隼·标准</div>
+          <div class="h2" id="cap-sub">2 武器槽 · 2 插件槽 · 承载 6 / 14</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 右：数值 + 槽位 ===== -->
+    <div class="col">
+      <div class="panel-head">舰船属性 <span class="n">实时</span></div>
+
+      <div class="sec" style="flex:none">
+        <div class="kv"><span>血量</span><b id="v-hp">60</b></div>
+        <div class="kv"><span>自然回血</span><b id="v-regen">2.0 / s</b></div>
+        <div class="kv"><span>护盾量</span><b id="v-shield">0</b></div>
+        <div class="kv"><span>护盾回充</span><b id="v-sregen">0 / s</b></div>
+        <div class="kv"><span>船体受击尺寸</span><b id="v-hit">6</b></div>
+        <div class="kv"><span>护盾受击尺寸</span><b id="v-shit">10</b></div>
+
+        <div class="hr"></div>
+
+        <div class="kv"><span>承载量</span><b id="v-cap">6 / 14</b></div>
+        <div class="segbar" style="margin:5px 0 9px" id="capbar">
+          <i class="w" style="width:43%"></i>
+        </div>
+
+        <div class="kv"><span>建造工时</span><b id="v-bt">10.0 s</b></div>
+        <div class="kv"><span>占用指挥值</span><b id="v-cmd">4</b></div>
+      </div>
+
+      <div class="panel-head">装配 <span class="n">点击槽位更换</span></div>
+      <div class="scroll" style="padding:10px 12px" id="slots"></div>
+      <div class="foot">承载超限的装配无法保存（原型里直接置灰）</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 二级面板 ===== -->
+<div class="drawer-mask" id="mask"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <div>
+      <div class="t" id="d-title">选择武器</div>
+      <div class="s" id="d-sub">槽位 w1 · S 型</div>
+    </div>
+    <button class="btn mini ghost" style="margin-left:auto" id="d-close">关闭</button>
+  </div>
+  <div class="scroll" id="d-list"></div>
+  <div class="drawer-foot">
+    <span id="d-foot">承载余量 8</span>
+  </div>
+</aside>
+
+<script>
+/* ---------------- 数据 ---------------- */
+
+const HULLS = {
+  'hull.falcon':  { name:'矛隼级', cls:'frigate',   tier:1, hp:60,  regen:2.0, shield:0,  sregen:0,   hit:6,  shit:10, cap:14, cmd:4,  bt:8.0,  frame:'f01',
+                    slots:{ weapon:[{id:'w1',size:'S',x:77,y:37},{id:'w2',size:'S',x:77,y:63}], plugin:[{id:'p1',x:21,y:39},{id:'p2',x:21,y:61}] } },
+  'hull.bulwark': { name:'壁垒级', cls:'frigate',   tier:2, hp:75,  regen:2.5, shield:30, sregen:1.5, hit:6.5,shit:10.5,cap:17, cmd:6,  bt:12.0, frame:'f17',
+                    slots:{ weapon:[{id:'w1',size:'M',x:74,y:50},{id:'w2',size:'S',x:48,y:72}], plugin:[{id:'p1',x:20,y:37},{id:'p2',x:20,y:63}] } },
+  'hull.hammer':  { name:'重锤级', cls:'destroyer', tier:1, hp:130, regen:3.0, shield:30, sregen:2.0, hit:9,  shit:14,  cap:24, cmd:10, bt:26.0, frame:'f33',
+                    slots:{ weapon:[{id:'w1',size:'M',x:78,y:50},{id:'w2',size:'S',x:45,y:32},{id:'w3',size:'S',x:45,y:68}], plugin:[{id:'p1',x:17,y:32},{id:'p2',x:17,y:50},{id:'p3',x:17,y:68}] } },
+  'hull.citadel': { name:'堡垒级', cls:'cruiser',   tier:1, hp:280, regen:6.0, shield:60, sregen:4.0, hit:13, shit:19,  cap:34, cmd:22, bt:63.8, frame:'f49',
+                    slots:{ weapon:[{id:'w1',size:'M',x:80,y:38},{id:'w2',size:'M',x:80,y:62},{id:'w3',size:'S',x:42,y:30},{id:'w4',size:'S',x:42,y:70}], plugin:[{id:'p1',x:15,y:26},{id:'p2',x:15,y:42},{id:'p3',x:15,y:58},{id:'p4',x:15,y:74}] } },
+};
+
+const WEAPONS = {
+  laser:    { name:'激光',       size:'S', cap:3, dmg:'24',   range:'300', cd:'2.0s', note:'瞬时命中 · 单体' },
+  chaingun: { name:'突击链炮',   size:'S', cap:4, dmg:'20 ×4',range:'400', cd:'2.0s', note:'4 连发 · 小扇面' },
+  missile:  { name:'导弹',       size:'S', cap:5, dmg:'40+24',range:'480', cd:'2.6s', note:'追踪 · 小范围溅射' },
+  torpedo:  { name:'鱼雷',       size:'M', cap:5, dmg:'18+18',range:'380', cd:'6.0s', note:'不追踪 · 55 半径大溅射' },
+  railgun:  { name:'轨道炮',     size:'M', cap:5, dmg:'20',   range:'250', cd:'2.6s', note:'穿盾 · 可贯穿 3 个目标' },
+};
+
+const PLUGINS = {
+  'plugin.capacitor':  { name:'扩容电容',        size:'—', cap:5, note:'承载上限 +6',             extra:'上限 +6' },
+  'plugin.shellplate': { name:'附加装甲',        size:'—', cap:3, note:'血量 +25 · 受击尺寸 +1.5', extra:'HP +25' },
+  'plugin.deflector':  { name:'偏导护盾',        size:'—', cap:4, note:'护盾 +40 · 回充 +2/s',    extra:'SH +40' },
+  'plugin.autoloader': { name:'自动装填机',      size:'—', cap:2, note:'全部武器冷却 ×0.85',      extra:'CD ×0.85' },
+  'plugin.charger_s':  { name:'护盾充能器·小',   size:'—', cap:4, note:'半径 140 · 10/s · 上限+30', extra:'支援' },
+  'plugin.repair_drone':{ name:'维修无人机',     size:'—', cap:1, note:'半径 180 · 8/s',          extra:'支援' },
+};
+
+const SHIPS = [
+  { id:'ship.std_falcon',   name:'矛隼·标准',     hull:'hull.falcon',  fit:{ w1:'laser', w2:'laser' } },
+  { id:'ship.std_bulwark',  name:'壁垒·重装',     hull:'hull.bulwark', fit:{ w1:'missile', w2:'laser' } },
+  { id:'ship.std_hammer',   name:'重锤·突击',     hull:'hull.hammer',  fit:{ w1:'torpedo', w2:'laser', w3:'laser' } },
+  { id:'ship.std_citadel',  name:'堡垒·旗舰',     hull:'hull.citadel', fit:{ w1:'missile', w2:'railgun', w3:'laser', w4:'laser' } },
+  { id:'ship.support_charger', name:'矛隼·护盾支援', hull:'hull.falcon', fit:{ w1:'laser', p1:'plugin.charger_s', p2:'plugin.capacitor' } },
+  { id:'ship.support_repair',  name:'矛隼·维修支援', hull:'hull.falcon', fit:{ w1:'laser', p1:'plugin.repair_drone', p2:'plugin.shellplate' } },
+];
+
+/* ---------------- 状态 ---------------- */
+
+let curShip = SHIPS[0];
+let curSlot = null;
+let drawerMode = 'slot';   // 'slot' | 'hull'
+
+const el = id => document.getElementById(id);
+
+/* ---------------- 计算 ---------------- */
+
+function hullOf(ship) { return HULLS[ship.hull]; }
+
+function allSlots(hull) {
+  return [
+    ...hull.slots.weapon.map(s => ({ ...s, kind:'weapon' })),
+    ...hull.slots.plugin.map(s => ({ ...s, kind:'plugin' })),
+  ];
+}
+
+function capInfo(ship) {
+  const hull = hullOf(ship);
+  let used = 0, weapons = 0, plugins = 0, capBonus = 0;
+  for (const s of allSlots(hull)) {
+    const id = ship.fit[s.id];
+    if (!id) continue;
+    if (s.kind === 'weapon') { const w = WEAPONS[id]; used += w.cap; weapons += w.cap; }
+    else { const p = PLUGINS[id]; used += p.cap; plugins += p.cap;
+           if (id === 'plugin.capacitor') capBonus += 6; }
+  }
+  return { used, cap: hull.cap + capBonus, weapons, plugins };
+}
+
+function armorOf(ship) {
+  const hull = hullOf(ship);
+  let hp = hull.hp, regen = hull.regen, shield = hull.shield, sregen = hull.sregen, hit = hull.hit;
+  for (const s of allSlots(hull)) {
+    const id = ship.fit[s.id];
+    if (id === 'plugin.shellplate') { hp += 25; hit += 1.5; }
+    if (id === 'plugin.deflector')  { shield += 40; sregen += 2; }
+  }
+  return { hp, regen, shield, sregen, hit };
+}
+
+function buildTime(ship) {
+  const hull = hullOf(ship);
+  let t = hull.bt;
+  for (const s of allSlots(hull)) {
+    const id = ship.fit[s.id];
+    if (!id) continue;
+    if (s.kind === 'weapon') t += { laser:1.0, chaingun:1.4, missile:2.0, torpedo:1.8, railgun:2.3 }[id] ?? 0;
+    else t += { 'plugin.capacitor':2.0, 'plugin.shellplate':1.2, 'plugin.deflector':1.6,
+                'plugin.autoloader':0.8, 'plugin.charger_s':1.8, 'plugin.repair_drone':0.5 }[id] ?? 0;
+  }
+  return t;
+}
+
+/* ---------------- 渲染 ---------------- */
+
+function renderLib() {
+  el('lib').innerHTML = SHIPS.map(s => {
+    const h = hullOf(s);
+    const c = capInfo(s);
+    const bad = c.used > c.cap;
+    return `
+      <div class="row${s === curShip ? ' sel' : ''}" data-id="${s.id}">
+        <button class="delx" data-del="${s.id}" title="删除方案 ${s.name}">✕</button>
+        <span class="sprite mini ${h.frame}"></span>
+        <span class="name">${s.name}</span>
+        <span class="num" style="color:${bad ? 'var(--danger)' : 'var(--dim)'}">${c.used}/${c.cap}</span>
+        <span class="num">${h.cmd}</span>
+      </div>`;
+  }).join('');
+  el('lib').querySelectorAll('.row').forEach(r => {
+    r.addEventListener('click', () => {
+      curShip = SHIPS.find(x => x.id === r.dataset.id);
+      curSlot = null;
+      renderAll();
+    });
+  });
+  el('lib').querySelectorAll('.delx').forEach(b => {
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      deleteShip(b.dataset.del);
+    });
+  });
+  el('lib-n').textContent = SHIPS.length;
+  el('t-ships').textContent = SHIPS.length;
+}
+
+/* 删除方案：至少保留一个；删掉的正好是当前方案就顺延到相邻方案 */
+function deleteShip(shipId) {
+  if (SHIPS.length <= 1) return;
+  const i = SHIPS.findIndex(s => s.id === shipId);
+  if (i < 0) return;
+  SHIPS.splice(i, 1);
+  if (curShip.id === shipId) {
+    curShip = SHIPS[Math.min(i, SHIPS.length - 1)];
+    curSlot = null;
+  }
+  closeDrawer();
+  renderAll();
+}
+
+/* 新建方案：复制当前方案的装配，扔在列表末尾 */
+function newShip() {
+  const n = SHIPS.length + 1;
+  const ship = {
+    id: `ship.custom_${Date.now()}`,
+    name: `新方案 ${n}`,
+    hull: curShip.hull,
+    fit: { ...curShip.fit },
+  };
+  SHIPS.push(ship);
+  curShip = ship;
+  curSlot = null;
+  closeDrawer();
+  renderAll();
+}
+
+function renderHull() {
+  const h = hullOf(curShip);
+  const c = capInfo(curShip);
+
+  el('hull-sprite').className = `sprite lg ${h.frame} hull-sprite`;
+  el('hull-n').textContent = `${h.name} · ${h.cls} · T${h.tier}`;
+  el('cap-name').textContent = curShip.name;
+  el('cap-sub').textContent =
+    `${h.slots.weapon.length} 武器槽 · ${h.slots.plugin.length} 插件槽 · 承载 ${c.used} / ${c.cap}`;
+
+  // 槽位引脚：显示「代号-装备名」，空槽显示「代号-空」
+  document.querySelectorAll('.pin').forEach(n => n.remove());
+  const wrap = el('hull-wrap');
+  for (const s of allSlots(h)) {
+    const itemId = curShip.fit[s.id];
+    const filled = !!itemId;
+    const itemName = filled
+      ? (s.kind === 'weapon' ? WEAPONS[itemId]?.name : PLUGINS[itemId]?.name) || '?'
+      : '空';
+
+    const pin = document.createElement('div');
+    pin.className = `pin ${s.kind} ${filled ? 'filled' : 'empty'}${curSlot === s.id ? ' active' : ''}`;
+    pin.style.left = s.x + '%';
+    pin.style.top = s.y + '%';
+    pin.textContent = `${s.id}-${itemName}`;
+    pin.title = s.kind === 'weapon'
+      ? `${s.id} · ${s.size} 型武器槽`
+      : `${s.id} · 插件槽`;
+    pin.addEventListener('click', () => openDrawer(s.id));
+    wrap.appendChild(pin);
+  }
+}
+
+function renderStats() {
+  const h = hullOf(curShip);
+  const a = armorOf(curShip);
+  const c = capInfo(curShip);
+
+  el('v-hp').textContent = a.hp;
+  el('v-regen').textContent = a.regen.toFixed(1) + ' / s';
+  el('v-shield').textContent = a.shield;
+  el('v-sregen').textContent = a.sregen + ' / s';
+  el('v-hit').textContent = a.hit;
+  el('v-shit').textContent = h.shit;
+
+  el('v-cap').textContent = `${c.used} / ${c.cap}`;
+  el('v-cap').className = c.used > c.cap ? 'bad' : '';
+  el('v-bt').textContent = buildTime(curShip).toFixed(1) + ' s';
+  el('v-cmd').textContent = h.cmd;
+
+  // 分段承载条
+  const total = Math.max(c.cap, c.used, 1);
+  el('capbar').innerHTML =
+    `<i class="w" style="width:${c.weapons / total * 100}%"></i>` +
+    `<i class="p" style="width:${c.plugins / total * 100}%"></i>` +
+    (c.used > c.cap ? `<i style="width:0"></i>` : '');
+
+  el('t-cap').textContent = `${c.used} / ${c.cap}`;
+  el('t-cap').className = 'mono ' + (c.used > c.cap ? 'bad' : 'warn');
+  el('t-bt').textContent = buildTime(curShip).toFixed(1) + 's';
+}
+
+/* ---------------- 装配面板：船体 / 武器槽 / 插件槽 三组 ---------------- */
+
+function slotRow(s) {
+  const id = curShip.fit[s.id];
+  const it = id ? (s.kind === 'weapon' ? WEAPONS[id] : PLUGINS[id]) : null;
+  const sizeCell = s.kind === 'weapon' ? `<span class="ssize">${s.size}</span>` : '';
+  return `
+    <div class="slot ${s.kind}${curSlot === s.id ? ' active' : ''}" data-slot="${s.id}">
+      <span class="sid">${s.id}</span>
+      ${sizeCell}
+      <div class="body">
+        <div class="nm ${it ? '' : 'empty-nm'}">${it ? it.name : '空'}</div>
+        <div class="sub">${it ? it.note : (s.kind === 'weapon' ? '点击选择武器' : '点击选择插件')}</div>
+      </div>
+      <div class="cap">${it ? it.cap : '—'}<em>承载</em></div>
+      <button class="del-btn" data-remove="${s.id}" ${it ? '' : 'disabled'}
+              title="${it ? `拆除 ${s.id} 上的${it.name}` : '槽位为空'}">拆除</button>
+    </div>`;
+}
+
+function renderFitPanel() {
+  const h = hullOf(curShip);
+  const weapons = allSlots(h).filter(s => s.kind === 'weapon');
+  const plugins = allSlots(h).filter(s => s.kind === 'plugin');
+
+  el('slots').innerHTML = `
+    <div class="group">
+      <div class="gtitle">船体 <span class="n">点击更换</span></div>
+      <div class="hullbtn" id="hullbtn" title="点击打开船体列表">
+        <div class="art"><div class="sprite sm ${h.frame}"></div></div>
+        <div>
+          <div class="nm">${h.name}</div>
+          <div class="sub">当前船体 · ${h.cls} · T${h.tier}</div>
+        </div>
+        <div class="go">更换 ⟩</div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="gtitle">武器槽 <span class="n">${weapons.length} 个</span></div>
+      ${weapons.map(slotRow).join('')}
+    </div>
+
+    <div class="group">
+      <div class="gtitle">插件槽 <span class="n">${plugins.length} 个</span></div>
+      ${plugins.map(slotRow).join('')}
+    </div>`;
+
+  el('hullbtn').addEventListener('click', openHullDrawer);
+  el('slots').querySelectorAll('.slot').forEach(n => {
+    n.addEventListener('click', () => openDrawer(n.dataset.slot));
+  });
+  el('slots').querySelectorAll('.del-btn').forEach(b => {
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      if (b.disabled) return;
+      curShip.fit[b.dataset.remove] = null;
+      renderAll();
+    });
+  });
+}
+
+/* ---------------- 换船体 ---------------- */
+
+const RANK = { S: 0, M: 1, L: 2 };
+
+function switchHull(hullId) {
+  if (!HULLS[hullId]) return;
+  const h = HULLS[hullId];
+  const slots = allSlots(h);
+  const byId = new Map(slots.map(s => [s.id, s]));
+
+  // 换船体后：不存在的槽位清空，装不下的装备卸下，其余保留
+  for (const sid of Object.keys(curShip.fit)) {
+    const slot = byId.get(sid);
+    if (!slot) { delete curShip.fit[sid]; continue; }
+    const itemId = curShip.fit[sid];
+    if (!itemId) continue;
+    if (slot.kind === 'weapon') {
+      const w = WEAPONS[itemId];
+      if (!w || RANK[w.size] > RANK[slot.size]) delete curShip.fit[sid];
+    } else if (!PLUGINS[itemId]) {
+      delete curShip.fit[sid];
+    }
+  }
+  // 新船体多出来的槽位补空值
+  for (const s of slots) if (!(s.id in curShip.fit)) curShip.fit[s.id] = null;
+
+  curShip.hull = hullId;
+  closeDrawer();
+  renderAll();
+}
+
+function renderAll() {
+  renderLib();
+  renderHull();
+  renderStats();
+  renderFitPanel();
+}
+
+/* ---------------- 二级面板 ---------------- */
+
+function slotDef(slotId) {
+  return allSlots(hullOf(curShip)).find(s => s.id === slotId);
+}
+
+/* 打开某个槽位的装备清单 */
+function openDrawer(slotId) {
+  drawerMode = 'slot';
+  curSlot = slotId;
+  const s = slotDef(slotId);
+  const isWeapon = s.kind === 'weapon';
+  const table = isWeapon ? WEAPONS : PLUGINS;
+
+  el('d-title').textContent = isWeapon ? '选择武器' : '选择插件';
+  el('d-sub').textContent = isWeapon
+    ? `槽位 ${s.id} · ${s.size} 型 · 只能装 ${s.size} 及以下的武器`
+    : `槽位 ${s.id} · 插件槽不分尺寸`;
+
+  const c = capInfo(curShip);
+  const curId = curShip.fit[s.id];
+  const curCap = curId ? table[curId].cap : 0;
+  const freeAfterRemove = c.cap - c.used + curCap;
+
+  const rows = Object.entries(table).map(([id, it]) => {
+    const sizeOk = !isWeapon || RANK[it.size] <= RANK[s.size];
+    const capOk = it.cap <= freeAfterRemove;
+    const ok = sizeOk && capOk;
+    const cur = id === curId;
+    const why = !sizeOk ? `${s.size} 槽装不下` : (!capOk ? '承载不够' : '');
+    return `
+      <div class="item${cur ? ' current' : ''}${ok ? '' : ' disabled'}" data-id="${id}" data-ok="${ok}">
+        <div>
+          <div class="nm">
+            ${it.name}
+            <span class="tag ${(it.size || 'S').toLowerCase()}">${it.size}</span>
+            ${cur ? '<span class="tag ok">已装</span>' : ''}
+            ${why ? `<span class="tag bad">${why}</span>` : ''}
+          </div>
+          <div class="desc">${it.note}</div>
+        </div>
+        <div class="num">${it.cap}<em>承载</em></div>
+        ${isWeapon
+          ? `<div class="num">${it.dmg}<em>伤害</em></div>
+             <div class="num">${it.range}<em>射程 · ${it.cd}</em></div>`
+          : `<div class="num">${it.extra || '—'}<em>效果</em></div>
+             <div class="num">—<em>范围</em></div>`}
+      </div>`;
+  }).join('');
+
+  el('d-list').innerHTML = rows;
+  el('d-list').querySelectorAll('.item').forEach(n => {
+    n.addEventListener('click', () => {
+      if (n.dataset.ok !== 'true') return;
+      curShip.fit[s.id] = n.dataset.id;
+      closeDrawer();
+      renderAll();
+    });
+  });
+
+  el('d-foot').textContent = `承载余量 ${freeAfterRemove}（已含卸下当前这件）· 拆除装备请回槽位列表点「拆除」`;
+
+  el('mask').classList.add('open');
+  el('drawer').classList.add('open');
+  renderHull();
+  renderFitPanel();
+}
+
+/* 打开船体清单：和武器/插件同一个二级面板 */
+function openHullDrawer() {
+  drawerMode = 'hull';
+  curSlot = null;
+
+  el('d-title').textContent = '选择船体';
+  el('d-sub').textContent = '换船体会保留新船体上仍然装得下的装备';
+
+  el('d-list').innerHTML = Object.entries(HULLS).map(([id, h]) => {
+    const cur = id === curShip.hull;
+    return `
+      <div class="item hull${cur ? ' current' : ''}" data-hull="${id}">
+        <div class="art"><div class="sprite sm ${h.frame}"></div></div>
+        <div>
+          <div class="nm">
+            ${h.name}
+            <span class="tag">${h.cls}</span>
+            <span class="tag">T${h.tier}</span>
+            ${cur ? '<span class="tag ok">当前</span>' : ''}
+          </div>
+          <div class="desc">${h.slots.weapon.length} 武器 · ${h.slots.plugin.length} 插件 · 承载 ${h.cap}</div>
+        </div>
+        <div class="num">${h.hp}<em>血量</em></div>
+        <div class="num">${h.shield}<em>护盾</em></div>
+        <div class="num">${h.cmd}<em>人口</em></div>
+      </div>`;
+  }).join('');
+
+  el('d-list').querySelectorAll('.item').forEach(n => {
+    n.addEventListener('click', () => switchHull(n.dataset.hull));
+  });
+
+  el('d-foot').textContent = '切换后可能需要重新调整装配';
+
+  el('mask').classList.add('open');
+  el('drawer').classList.add('open');
+  renderHull();
+  renderFitPanel();
+}
+
+function closeDrawer() {
+  curSlot = null;
+  drawerMode = 'slot';
+  el('mask').classList.remove('open');
+  el('drawer').classList.remove('open');
+  renderHull();
+  renderFitPanel();
+}
+
+el('d-close').addEventListener('click', closeDrawer);
+el('mask').addEventListener('click', closeDrawer);
+document.querySelector('#libbar .btn').addEventListener('click', newShip);
+window.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+/* ---------------- 启动 ---------------- */
+renderAll();
+</script>
+</body>
+</html>

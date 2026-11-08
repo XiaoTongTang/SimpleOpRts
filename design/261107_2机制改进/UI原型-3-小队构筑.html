@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>UI 原型 3 · 小队构筑界面</title>
+<link rel="stylesheet" href="./UI原型.css">
+<style>
+  /* ---- 中栏：整队舰船 ---- */
+  .fleet {
+    padding: 16px 18px 24px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(252px, 1fr));
+    gap: 12px;
+    align-content: start;
+    overflow: auto;
+    min-height: 0;
+  }
+
+  .shipcard {
+    border: 1px solid var(--line-soft);
+    border-radius: 9px;
+    background: linear-gradient(180deg, rgba(22,31,43,.9), rgba(13,19,27,.9));
+    padding: 10px 11px 11px;
+    position: relative;
+  }
+
+  /* 上：缩小的船图 + 名称 / 关键数值 */
+  .shipcard .head {
+    display: grid;
+    grid-template-columns: 64px 1fr;
+    gap: 10px;
+    align-items: center;
+  }
+  .shipcard .art {
+    display: grid; place-items: center;
+    width: 64px; height: 64px;
+    background: radial-gradient(ellipse at 50% 52%, rgba(79,163,232,.10), transparent 72%);
+  }
+  .shipcard .art .sprite { filter: drop-shadow(0 4px 10px rgba(0,0,0,.75)); }
+
+  .shipcard .nm {
+    font-size: 13px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .shipcard .hull { font-size: 10.5px; color: var(--mute); margin-top: 3px; letter-spacing: .03em; }
+
+  .mini4 {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px 10px;
+    margin-top: 5px;
+    font-size: 10.5px;
+    color: var(--mute);
+  }
+  .mini4 span { display: flex; justify-content: flex-start; gap: 6px; }
+  .mini4 b {
+    font-family: var(--mono); font-weight: 500;
+    color: var(--dim); font-variant-numeric: tabular-nums;
+  }
+
+  /* 下：武器 / 插件全量配置 */
+  .fitline {
+    display: flex; gap: 6px;
+    align-items: flex-start;
+    margin-top: 7px;
+    font-size: 11px;
+  }
+  .fitline > i {
+    flex: none; width: 26px;
+    font-style: normal; font-size: 10px; letter-spacing: .08em;
+    color: var(--mute); padding-top: 2px;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+  .chip {
+    padding: 1px 5px;
+    font-size: 10.5px;
+    color: var(--dim);
+    background: #0b141c;
+    border: 1px solid var(--px-edge-dim, #24405a);
+  }
+  .chip.none { color: #4c6076; border-style: dashed; }
+
+  .shipcard .cnt {
+    position: absolute; top: 8px; right: 9px;
+    font-family: var(--mono); font-size: 12px;
+    color: #bfe0ff;
+    background: rgba(79,163,232,.16);
+    border: 1px solid rgba(79,163,232,.4);
+    border-radius: 5px;
+    padding: 1px 6px;
+  }
+
+  /* 卡片底部：数量增减 + 删除 */
+  .cardbar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px solid rgba(88,126,166,.14);
+  }
+  .cardbar .stepper { display: flex; align-items: center; gap: 4px; }
+  .cardx {
+    flex: none;
+    height: 22px; padding: 0 9px;
+    font-size: 10.5px; letter-spacing: .06em;
+    border-radius: 0;
+    border: 2px solid rgba(200,80,60,.45);
+    background: rgba(140,40,30,.18);
+    color: #ffb4ad;
+    cursor: pointer;
+  }
+  .cardx:hover { background: rgba(180,60,45,.34); border-color: var(--danger); }
+  .cardx:disabled { opacity: .3; cursor: not-allowed; }
+
+  .fleet-empty {
+    grid-column: 1 / -1;
+    display: grid; place-items: center;
+    color: var(--mute); font-size: 12px;
+    padding: 60px 0;
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+  }
+
+  /* ---- 左栏：改名按钮 ---- */
+  .row { padding-right: 6px; }
+  .row .pen {
+    flex: none;
+    width: 20px; height: 20px;
+    padding: 0;
+    display: grid; place-items: center;
+    border-radius: 0;
+    border: 1px solid var(--px-edge-dim, #24405a);
+    background: #0b141c;
+    color: #6f8aa4;
+    cursor: pointer;
+    box-shadow: none;
+    opacity: .55;
+    transition: opacity .12s;
+  }
+  .row:hover .pen, .row.sel .pen { opacity: 1; }
+  .row .pen:hover { color: var(--px-hi, #7fc0f5); border-color: var(--px-hi, #7fc0f5); background: #16222e; }
+  .row .pen:active { transform: none; box-shadow: none; }
+  .row .pen svg { display: block; }
+
+  .row input.rename {
+    flex: 1; min-width: 0;
+    height: 22px;
+    padding: 0 5px;
+    font: inherit; font-size: 12.5px;
+    border-radius: 0;
+    border: 2px solid var(--px-hi, #7fc0f5);
+    background: #0b141c;
+    color: var(--text);
+  }
+  .row input.rename:focus { outline: none; }
+
+  /* ---- 右栏 ---- */
+  .big4 {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    margin-bottom: 10px;
+  }
+  .big4 .cell {
+    border: 1px solid var(--line-soft);
+    border-radius: 7px;
+    padding: 7px 9px;
+    background: rgba(20,29,40,.5);
+  }
+  .big4 .lbl { font-size: 10px; letter-spacing: .08em; color: var(--mute); text-transform: uppercase; }
+  .big4 .val {
+    font-family: var(--mono); font-size: 16px; margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+  .big4 .val small { font-size: 10px; color: var(--mute); margin-left: 3px; }
+
+  .entry {
+    display: grid;
+    grid-template-columns: 30px 1fr auto auto;
+    gap: 9px;
+    align-items: center;
+    padding: 8px 8px;
+    border-radius: 7px;
+    border: 1px solid var(--line-soft);
+    background: rgba(20,29,40,.45);
+  }
+  .entry + .entry { margin-top: 6px; }
+  .entry .nm { font-size: 12px; }
+  .entry .sub { font-size: 10.5px; color: var(--mute); margin-top: 2px; }
+  .entry .x {
+    width: 20px; height: 20px; padding: 0; line-height: 1;
+    border-radius: 4px; border: 1px solid rgba(200,80,60,.35);
+    background: rgba(140,40,30,.18); color: #ffb4ad; cursor: pointer;
+    font-size: 12px;
+  }
+  .entry .x:hover { background: rgba(180,60,45,.32); }
+  .entry .x[disabled] { opacity: .3; cursor: not-allowed; }
+
+  .addbar {
+    flex: none;
+    padding: 10px 12px;
+    border-top: 1px solid var(--line-soft);
+    background: rgba(8, 12, 18, .5);
+  }
+
+  /* ---- 右栏：阵型编辑 ---- */
+  .scroll.forms {
+    flex: none;
+    height: 176px;
+    padding: 8px 10px;
+  }
+  .formrow {
+    display: grid;
+    grid-template-columns: 16px 1fr;
+    gap: 8px;
+    align-items: start;
+    padding: 6px 8px;
+    margin-bottom: 6px;
+    cursor: pointer;
+    border: 2px solid transparent;
+    border-left: 3px solid transparent;
+  }
+  .formrow:hover { background: rgba(70,100,130,.18); border-color: var(--px-edge-dim); }
+  .formrow.sel { background: var(--px-face-sel); border-color: var(--px-hi); border-left-color: var(--px-hi); }
+  .formrow .ck {
+    font-family: var(--mono); font-size: 11px; line-height: 17px;
+    color: var(--px-hi); text-align: center;
+  }
+  .formrow .fn { font-size: 12px; }
+  .formrow .fd { font-size: 10.5px; color: var(--mute); margin-top: 2px; }
+
+  .warn-box {
+    margin-top: 8px;
+    font-size: 11px;
+    line-height: 1.5;
+    padding: 7px 9px;
+    border-radius: 6px;
+    color: #ffce8a;
+    background: rgba(140,100,30,.16);
+    border: 1px solid rgba(200,150,60,.3);
+  }
+
+  /* ---- 左侧滑出的选择面板 ---- */
+  .drawer-mask {
+    position: fixed; inset: 42px 0 0 0;
+    background: rgba(3, 6, 10, .55);
+    backdrop-filter: blur(2px);
+    opacity: 0; pointer-events: none;
+    transition: opacity .16s;
+    z-index: 40;
+  }
+  .drawer-mask.open { opacity: 1; pointer-events: auto; }
+
+  .drawer {
+    position: fixed; top: 42px; bottom: 0; left: 0;
+    width: 596px;
+    background: #0d161f;
+    border-right: 3px solid #3d6183;
+    border-left: 0;
+    box-shadow: 8px 0 0 rgba(0,0,0,.55);
+    transform: translateX(-100%);
+    transition: transform .2s cubic-bezier(.2,.9,.3,1);
+    z-index: 41;
+    display: flex; flex-direction: column;
+  }
+  .drawer.open { transform: translateX(0); }
+
+  .drawer-head {
+    flex: none;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .drawer-head .t { font-size: 13px; }
+  .drawer-head .s { font-size: 11px; color: var(--mute); margin-top: 3px; }
+
+  /* 可选舰船：缩略图 + 名称 + 武器/插件 + 关键数值 */
+  .pick {
+    display: grid;
+    grid-template-columns: 64px 1fr 176px;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line-soft);
+    border-left: 3px solid transparent;
+    cursor: pointer;
+  }
+  .pick:hover { background: rgba(70,100,130,.16); }
+  .pick.sel { background: #1b3550; border-left-color: #7fc0f5; }
+  .pick .art {
+    display: grid; place-items: center;
+    width: 64px; height: 64px;
+    background: radial-gradient(ellipse at 50% 52%, rgba(79,163,232,.10), transparent 72%);
+  }
+  .pick .nm { font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .pick .hull { font-size: 10.5px; color: var(--mute); margin-top: 3px; }
+  .pick .nums {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    text-align: right;
+  }
+  .pick .num {
+    font-family: var(--mono); font-size: 11.5px; color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .pick .num em {
+    display: block; font-style: normal; font-size: 9.5px;
+    color: var(--mute); letter-spacing: .02em;
+  }
+  .pick .check { display: none; color: #7fc0f5; font-family: var(--mono); }
+  .pick.sel .check { display: inline; }
+
+  .drawer-foot {
+    flex: none;
+    padding: 12px 14px;
+    border-top: 1px solid var(--line);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .drawer-foot .picked {
+    font-size: 11.5px; color: var(--dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .drawer-foot .picked b { color: var(--text); font-weight: 500; }
+  .drawer-foot .confirm {
+    width: 100%; height: 50px;
+    font-size: 15px; letter-spacing: .34em;
+  }
+  .drawer-foot .confirm:disabled { opacity: .4; cursor: not-allowed; }
+
+  /* ===========================================================
+     像素化覆盖（本页样式最后，压过上面的柔光/圆角定义）
+     =========================================================== */
+
+  .shipcard {
+    border-radius: 0;
+    border: 2px solid var(--px-edge-dim);
+    background: var(--px-face);
+    box-shadow: inset 1px 1px 0 rgba(255,255,255,.04);
+  }
+  .shipcard .art {
+    border: 1px solid var(--px-edge-dim);
+    background: #0b141c;
+  }
+  .shipcard .cnt { border-radius: 0; }
+  .chip { border-width: 1px; }
+
+  .drawer {
+    background: #0b141c;
+    border-right: 3px solid var(--px-edge);
+    box-shadow: 8px 0 0 rgba(0,0,0,.55);
+  }
+  .drawer-head { border-bottom: 2px solid var(--px-edge-dim); }
+  .drawer-foot { border-top: 2px solid var(--px-edge-dim); }
+  .drawer-mask { backdrop-filter: none; background: rgba(3,6,10,.74); }
+
+  .pick {
+    border-bottom: 1px solid rgba(88,126,166,.14);
+    border-left: 3px solid transparent;
+  }
+  .pick.sel { background: var(--px-face-sel); border-left-color: var(--px-hi); }
+  .pick .art { border: 1px solid var(--px-edge-dim); background: #0b141c; }
+
+  .addbar { border-top: 2px solid var(--px-edge-dim); }
+  .big4 .cell { border-radius: 0; border: 2px solid var(--px-edge-dim); background: var(--px-face); }
+  .entry { border-radius: 0; border: 2px solid var(--px-edge-dim); background: var(--px-face); }
+  .warn-box { border-radius: 0; }
+  .fleet-empty { border-radius: 0; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="topbar">
+    <div class="brand">SimpleOpRTS <em>· 小队构筑</em></div>
+    <div class="crumb"><a href="./UI原型-0-总览.html">原型总览</a> <span>/</span> <span class="muted">小队构筑</span></div>
+    <div class="spacer"></div>
+    <div class="stat">指挥值 <b class="mono" id="t-cmd">816 / 900</b></div>
+    <div class="stat">编制模板 <b class="mono" id="t-tpl">4</b></div>
+  </div>
+
+  <div class="body cols-3-narrow">
+
+    <!-- ===== 左：编制模板 ===== -->
+    <div class="col">
+      <div class="panel-head">小队编制模板 <span class="n" id="tpl-n">4</span></div>
+      <div style="padding:8px 10px;border-bottom:1px solid var(--line-soft)">
+        <button class="btn primary" style="width:100%">＋ 新建编制</button>
+      </div>
+      <div class="scroll" id="tpl-list"></div>
+      <div class="foot">点模板切换 · 笔形按钮改名</div>
+    </div>
+
+    <!-- ===== 中：整队舰船 ===== -->
+    <div class="col center">
+      <div class="panel-head">编队 <span class="n" id="fleet-n"></span></div>
+      <div class="fleet" id="fleet"></div>
+    </div>
+
+    <!-- ===== 右：编制调整 ===== -->
+    <div class="col">
+      <div class="panel-head">编制 <span class="n" id="tpl-name">第一突击队</span></div>
+
+      <div class="sec" style="flex:none">
+        <div class="big4">
+          <div class="cell"><div class="lbl">总血量</div><div class="val" id="s-hp">—</div></div>
+          <div class="cell"><div class="lbl">总盾量</div><div class="val" id="s-sh">—</div></div>
+          <div class="cell"><div class="lbl">总 DPS <small>单体</small></div><div class="val" id="s-dps">—</div></div>
+          <div class="cell"><div class="lbl">人口占用</div><div class="val" id="s-cmd">—</div></div>
+        </div>
+        <div class="kv"><span>舰船总数</span><b id="s-count">—</b></div>
+        <div class="kv"><span>平均单舰工时</span><b id="s-bt">—</b></div>
+        <div class="kv"><span>承载占满度</span><b id="s-fill">—</b></div>
+      </div>
+
+      <div class="panel-head">引用方案 <span class="n">增删 + 数量</span></div>
+      <div class="scroll" style="padding:10px 12px" id="entries"></div>
+
+      <div class="addbar">
+        <button class="btn primary" id="add-open" style="width:100%;height:34px">＋ 添加舰船</button>
+      </div>
+
+      <div class="panel-head">阵型编辑 <span class="n" id="form-n">0 个</span></div>
+      <div class="scroll forms" id="forms"></div>
+
+      <div class="foot">
+        改动即时重算上方合计；人口占用超 900 会标红
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 从左侧滑出：舰船方案选择 ===== -->
+<div class="drawer-mask" id="mask"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <div>
+      <div class="t">选择舰船方案</div>
+      <div class="s">选中一条，再点底部「确认加入」</div>
+    </div>
+    <button class="btn mini ghost" style="margin-left:auto" id="d-close">关闭</button>
+  </div>
+  <div class="scroll" id="d-list"></div>
+  <div class="drawer-foot">
+    <div class="picked" id="d-picked">未选择舰船</div>
+    <button class="btn primary confirm" id="d-ok" disabled>确认加入</button>
+  </div>
+</aside>
+
+<script>
+/* ---------------- 数据（原型内联，之后来自 core） ---------------- */
+
+const WEAPONS = {
+  laser:    '激光',
+  chaingun: '突击链炮',
+  missile:  '导弹',
+  torpedo:  '鱼雷',
+  railgun:  '轨道炮',
+};
+const PLUGINS = {
+  'plugin.capacitor':   '扩容电容',
+  'plugin.shellplate':  '附加装甲',
+  'plugin.deflector':   '偏导护盾',
+  'plugin.autoloader':  '自动装填机',
+  'plugin.charger_s':   '护盾充能器·小',
+  'plugin.repair_drone':'维修无人机',
+};
+const WEAPON_DPS = { laser: 12.0, chaingun: 33.9, missile: 24.6, torpedo: 6.0, railgun: 7.7 };
+
+const SHIPS = {
+  'ship.std_falcon': { name:'矛隼·标准', hull:'矛隼级', cls:'frigate', frame:'f01',
+    hp:60, shield:0, cmd:4, bt:10.0, capUsed:6, cap:14,
+    weapons:['laser','laser'], plugins:[] },
+  'ship.std_bulwark': { name:'壁垒·重装', hull:'壁垒级', cls:'frigate', frame:'f17',
+    hp:75, shield:30, cmd:6, bt:12.0, capUsed:8, cap:17,
+    weapons:['missile','laser'], plugins:[] },
+  'ship.std_hammer': { name:'重锤·突击', hull:'重锤级', cls:'destroyer', frame:'f33',
+    hp:130, shield:30, cmd:10, bt:26.0, capUsed:11, cap:24,
+    weapons:['torpedo','laser','laser'], plugins:[] },
+  'ship.std_citadel': { name:'堡垒·旗舰', hull:'堡垒级', cls:'cruiser', frame:'f49',
+    hp:280, shield:60, cmd:22, bt:63.8, capUsed:16, cap:34,
+    weapons:['missile','railgun','laser','laser'], plugins:[] },
+  'ship.support_charger': { name:'矛隼·护盾支援', hull:'矛隼级', cls:'frigate', frame:'f01',
+    hp:60, shield:0, cmd:4, bt:12.8, capUsed:12, cap:20,
+    weapons:['laser'], plugins:['plugin.charger_s','plugin.capacitor'], support:true },
+  'ship.support_repair': { name:'矛隼·维修支援', hull:'矛隼级', cls:'frigate', frame:'f01',
+    hp:85, shield:0, cmd:4, bt:10.7, capUsed:7, cap:14,
+    weapons:['laser'], plugins:['plugin.repair_drone','plugin.shellplate'], support:true },
+};
+
+const TEMPLATES = [
+  { id:'t1', name:'第一突击队', forms:['form.line','form.wedge'], entries:[
+      { ship:'ship.std_falcon', n:16 }, { ship:'ship.std_bulwark', n:6 }, { ship:'ship.std_citadel', n:2 } ] },
+  { id:'t2', name:'盾墙队', forms:['form.circle','form.line'], entries:[
+      { ship:'ship.std_bulwark', n:12 }, { ship:'ship.support_charger', n:4 } ] },
+  { id:'t3', name:'游击群', forms:['form.spread','form.column'], entries:[
+      { ship:'ship.std_hammer', n:8 }, { ship:'ship.support_repair', n:2 } ] },
+  { id:'t4', name:'旗舰队', forms:['form.circle','form.escort','form.wedge'], entries:[
+      { ship:'ship.std_citadel', n:4 }, { ship:'ship.support_charger', n:4 }, { ship:'ship.support_repair', n:2 } ] },
+];
+
+/* 阵型模板库：跨小队共用；每个编制从里面勾选若干个用于战斗内快速切换 */
+const FORMS = [
+  { id:'form.line',   name:'横列线阵', desc:'正面接战 · 全队平铺',     tag:'通用' },
+  { id:'form.wedge',  name:'楔形突击', desc:'前锋收拢 · 两翼包抄',     tag:'进攻' },
+  { id:'form.circle', name:'环形防御', desc:'全向护盾 · 向核心靠拢',   tag:'防御' },
+  { id:'form.spread', name:'疏散散开', desc:'降低溅射与鱼雷群伤',      tag:'规避' },
+  { id:'form.column', name:'纵列机动', desc:'快速穿越 · 低接触面',      tag:'机动' },
+  { id:'form.escort', name:'护卫包夹', desc:'支援舰贴身核心',          tag:'支援' },
+];
+
+const COMMAND_CAP = 900;
+
+/* ---------------- 状态 ---------------- */
+
+let cur = TEMPLATES[0];
+let picked = null;          // 选择面板里当前选中的舰船 id
+const el = id => document.getElementById(id);
+
+/* ---------------- 计算 ---------------- */
+
+function shipDps(s) {
+  return s.weapons.reduce((a, w) => a + (WEAPON_DPS[w] || 0), 0);
+}
+
+function totals(tpl) {
+  let hp = 0, shield = 0, dps = 0, cmd = 0, count = 0, bt = 0, capUsed = 0, cap = 0;
+  for (const e of tpl.entries) {
+    const s = SHIPS[e.ship];
+    hp += s.hp * e.n;
+    shield += s.shield * e.n;
+    dps += shipDps(s) * e.n;
+    cmd += s.cmd * e.n;
+    count += e.n;
+    bt += s.bt * e.n;
+    capUsed += s.capUsed * e.n;
+    cap += s.cap * e.n;
+  }
+  return { hp, shield, dps, cmd, count, bt: count ? bt / count : 0, capUsed, cap };
+}
+
+/* 把 ['laser','laser'] 合成 "激光 ×2" 的芯片串 */
+function chips(list, table, emptyText) {
+  if (!list || !list.length) return `<span class="chip none">${emptyText}</span>`;
+  const seen = new Map();
+  for (const id of list) seen.set(id, (seen.get(id) || 0) + 1);
+  return [...seen]
+    .map(([id, n]) => `<span class="chip">${table[id] || id}${n > 1 ? ` ×${n}` : ''}</span>`)
+    .join('');
+}
+
+const PEN_SVG = `<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true">
+  <path d="M8.4 1.3l2.3 2.3-6.9 6.9-2.7.4.4-2.7 6.9-6.9z" fill="none"
+        stroke="currentColor" stroke-width="1.2" stroke-linejoin="miter"/></svg>`;
+
+/* ---------------- 渲染 ---------------- */
+
+function renderTemplates() {
+  el('tpl-list').innerHTML = TEMPLATES.map(t => {
+    const tot = totals(t);
+    return `
+      <div class="row${t === cur ? ' sel' : ''}" data-id="${t.id}">
+        <span class="name">${t.name}</span>
+        <button class="pen" data-pen="${t.id}" title="修改名称" aria-label="修改名称">${PEN_SVG}</button>
+        <span class="num">${tot.count}</span>
+        <span class="num">${tot.cmd}</span>
+      </div>`;
+  }).join('');
+
+  el('tpl-list').querySelectorAll('.row').forEach(r => {
+    r.addEventListener('click', () => {
+      cur = TEMPLATES.find(t => t.id === r.dataset.id);
+      renderAll();
+    });
+  });
+
+  el('tpl-list').querySelectorAll('.pen').forEach(b => {
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      const t = TEMPLATES.find(x => x.id === b.dataset.pen);
+      beginRename(t, b.closest('.row'));
+    });
+  });
+
+  el('tpl-n').textContent = TEMPLATES.length;
+  el('t-tpl').textContent = TEMPLATES.length;
+}
+
+/* 行内改名：Enter / 失焦提交，Esc 取消 */
+function beginRename(tpl, rowEl) {
+  const nameEl = rowEl.querySelector('.name');
+  if (!nameEl) return;
+  const input = document.createElement('input');
+  input.className = 'rename';
+  input.value = tpl.name;
+  nameEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let done = false;
+  const finish = ok => {
+    if (done) return;
+    done = true;
+    if (ok) {
+      const v = input.value.trim();
+      if (v) tpl.name = v;
+    }
+    renderAll();
+  };
+
+  input.addEventListener('click', e => e.stopPropagation());
+  input.addEventListener('mousedown', e => e.stopPropagation());
+  input.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') finish(true);
+    else if (e.key === 'Escape') finish(false);
+  });
+  input.addEventListener('blur', () => finish(true));
+}
+
+function renderFleet() {
+  const tot = totals(cur);
+  el('fleet-n').textContent = `${cur.name} · ${tot.count} 舰 · ${cur.entries.length} 型`;
+  el('tpl-name').textContent = cur.name;
+
+  if (!cur.entries.length) {
+    el('fleet').innerHTML = `<div class="fleet-empty">这套编制还没有舰船，点右下「＋ 添加舰船」开始</div>`;
+    return;
+  }
+
+  el('fleet').innerHTML = cur.entries.map((e, i) => {
+    const s = SHIPS[e.ship];
+    return `
+      <div class="shipcard" data-i="${i}">
+        <span class="cnt">×${e.n}</span>
+        <div class="head">
+          <div class="art"><div class="sprite sm ${s.frame}"></div></div>
+          <div>
+            <div class="nm">${s.name}</div>
+            <div class="hull">${s.hull} · ${s.cls} · 承载 ${s.capUsed}/${s.cap}</div>
+            <div class="mini4">
+              <span>血量<b>${s.hp}</b></span>
+              <span>护盾<b>${s.shield}</b></span>
+              <span>人口<b>${s.cmd}</b></span>
+              <span>工时<b>${s.bt.toFixed(1)}s</b></span>
+            </div>
+          </div>
+        </div>
+        <div class="fitline"><i>武器</i><div class="chips">${chips(s.weapons, WEAPONS, '无')}</div></div>
+        <div class="fitline"><i>插件</i><div class="chips">${chips(s.plugins, PLUGINS, '无')}</div></div>
+        <div class="cardbar">
+          <div class="stepper">
+            <button data-act="dec" data-i="${i}" title="减少 1 艘">−</button>
+            <b>${e.n}</b>
+            <button data-act="inc" data-i="${i}" title="增加 1 艘">＋</button>
+          </div>
+          <button class="cardx" data-act="del" data-i="${i}"
+                  ${cur.entries.length <= 1 ? 'disabled' : ''}
+                  title="从编制中移除这一型">删除</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  el('fleet').querySelectorAll('[data-act]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = Number(btn.dataset.i);
+      const e = cur.entries[i];
+      if (!e) return;
+      if (btn.dataset.act === 'inc') e.n++;
+      if (btn.dataset.act === 'dec') e.n = Math.max(1, e.n - 1);
+      if (btn.dataset.act === 'del') {
+        if (cur.entries.length <= 1) return;
+        cur.entries.splice(i, 1);
+      }
+      renderAll();
+    });
+  });
+}
+
+function renderStats() {
+  const tot = totals(cur);
+  el('s-hp').textContent = tot.hp;
+  el('s-sh').textContent = tot.shield;
+  el('s-dps').textContent = Math.round(tot.dps);
+  el('s-cmd').textContent = tot.cmd;
+  el('s-cmd').style.color = tot.cmd > COMMAND_CAP ? 'var(--danger)' : '';
+  el('s-count').textContent = tot.count;
+  el('s-bt').textContent = tot.bt.toFixed(1) + ' s';
+  el('s-fill').textContent = tot.cap ? Math.round(tot.capUsed / tot.cap * 100) + ' %' : '—';
+  el('t-cmd').textContent = `${tot.cmd} / ${COMMAND_CAP}`;
+  el('t-cmd').style.color = tot.cmd > COMMAND_CAP ? 'var(--danger)' : '';
+}
+
+function renderEntries() {
+  el('entries').innerHTML = cur.entries.map((e, i) => {
+    const s = SHIPS[e.ship];
+    return `
+      <div class="entry" data-i="${i}">
+        <div class="sprite xs ${s.frame}"></div>
+        <div>
+          <div class="nm">${s.name}</div>
+          <div class="sub">${s.hull} · ${s.hp} 血 · ${s.cmd} 人口</div>
+        </div>
+        <div class="stepper">
+          <button data-act="dec" data-i="${i}">−</button>
+          <b>${e.n}</b>
+          <button data-act="inc" data-i="${i}">＋</button>
+        </div>
+        <button class="x" data-act="del" data-i="${i}" ${cur.entries.length <= 1 ? 'disabled' : ''}>×</button>
+      </div>`;
+  }).join('') + (totals(cur).cmd > COMMAND_CAP
+    ? `<div class="warn-box">人口占用 ${totals(cur).cmd} 超过上限 ${COMMAND_CAP}</div>` : '');
+
+  el('entries').querySelectorAll('[data-act]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = Number(btn.dataset.i);
+      const e = cur.entries[i];
+      if (btn.dataset.act === 'inc') e.n++;
+      if (btn.dataset.act === 'dec') e.n = Math.max(1, e.n - 1);
+      if (btn.dataset.act === 'del') {
+        if (cur.entries.length <= 1) return;
+        cur.entries.splice(i, 1);
+      }
+      renderAll();
+    });
+  });
+}
+
+/* 阵型编辑：从阵型模板库里勾选若干，战斗中可快速切换 */
+function renderForms() {
+  const chosen = cur.forms || (cur.forms = []);
+  el('forms').innerHTML = FORMS.map(f => {
+    const on = chosen.includes(f.id);
+    return `
+      <div class="formrow${on ? ' sel' : ''}" data-form="${f.id}">
+        <span class="ck">${on ? '✓' : ''}</span>
+        <div>
+          <div class="fn">${f.name}</div>
+          <div class="fd">${f.tag} · ${f.desc}</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  el('forms').querySelectorAll('.formrow').forEach(n => {
+    n.addEventListener('click', () => {
+      const id = n.dataset.form;
+      const i = chosen.indexOf(id);
+      if (i >= 0) chosen.splice(i, 1);
+      else chosen.push(id);
+      renderForms();
+    });
+  });
+
+  el('form-n').textContent = `${chosen.length} 个`;
+}
+
+function renderAll() {
+  renderTemplates();
+  renderFleet();
+  renderStats();
+  renderEntries();
+  renderForms();
+}
+
+/* ---------------- 选择面板（从左滑出） ---------------- */
+
+function openPicker() {
+  picked = null;
+  renderPicker();
+  el('mask').classList.add('open');
+  el('drawer').classList.add('open');
+}
+
+function closePicker() {
+  el('mask').classList.remove('open');
+  el('drawer').classList.remove('open');
+}
+
+function renderPicker() {
+  el('d-list').innerHTML = Object.entries(SHIPS).map(([id, s]) => {
+    const already = cur.entries.find(x => x.ship === id);
+    return `
+    <div class="pick${picked === id ? ' sel' : ''}" data-id="${id}">
+      <div class="art"><div class="sprite sm ${s.frame}"></div></div>
+      <div>
+        <div class="nm">${s.name}<span class="check">✓</span>
+          ${already ? `<span class="tag">已编入 ×${already.n}</span>` : ''}
+        </div>
+        <div class="hull">${s.hull} · ${s.cls} · 承载 ${s.capUsed}/${s.cap}</div>
+        <div class="fitline"><i>武器</i><div class="chips">${chips(s.weapons, WEAPONS, '无')}</div></div>
+        <div class="fitline"><i>插件</i><div class="chips">${chips(s.plugins, PLUGINS, '无')}</div></div>
+      </div>
+      <div class="nums">
+        <div class="num">${s.hp}<em>血量</em></div>
+        <div class="num">${s.shield}<em>护盾</em></div>
+        <div class="num">${s.cmd}<em>人口</em></div>
+        <div class="num">${s.bt.toFixed(1)}s<em>工时</em></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  el('d-list').querySelectorAll('.pick').forEach(n => {
+    n.addEventListener('click', () => {
+      picked = n.dataset.id;
+      renderPicker();
+    });
+  });
+
+  const s = picked ? SHIPS[picked] : null;
+  el('d-picked').innerHTML = s
+    ? `已选 <b>${s.name}</b> · 加入「${cur.name}」`
+    : '未选择舰船';
+  el('d-ok').disabled = !s;
+}
+
+function confirmPick() {
+  if (!picked) return;
+  const found = cur.entries.find(x => x.ship === picked);
+  if (found) found.n++;
+  else cur.entries.push({ ship: picked, n: 1 });
+  closePicker();
+  renderAll();
+}
+
+/* ---------------- 事件 ---------------- */
+
+el('add-open').addEventListener('click', openPicker);
+el('d-close').addEventListener('click', closePicker);
+el('mask').addEventListener('click', closePicker);
+el('d-ok').addEventListener('click', confirmPick);
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closePicker();
+  if (e.key === 'Enter' && el('drawer').classList.contains('open') && picked) confirmPick();
+});
+
+/* ---------------- 启动 ---------------- */
+renderAll();
+</script>
+</body>
+</html>
