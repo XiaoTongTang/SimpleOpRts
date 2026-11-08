@@ -53,23 +53,27 @@ export const GLOBAL_DEFS = [
 
 // ---------------------------------------------------------------
 // 小队定义：两个阵营 × 4 个正规队 + 双方各 1 个"未编队"
+//
+// 小队**不再有自己的颜色**：战场上只有阵营色，所有单位按阵营着色。
+// 配色常量放在这里是因为 sim 层不依赖渲染层，渲染层反过来可以读它。
 // ---------------------------------------------------------------
+export const FACTION_HUE = [205, 6];                               // HSL 色相
+export const FACTION_COLOR = ["#4fa3e8", "#e8614f"];               // UI / 贴图着色
+
 export const SQUAD_DEF = [
-  { key: "A", faction: 0, hue: 205, sat: 82 },
-  { key: "B", faction: 0, hue: 178, sat: 82 },
-  { key: "C", faction: 0, hue: 232, sat: 82 },
-  { key: "D", faction: 0, hue: 158, sat: 82 },
-  { key: "E", faction: 1, hue: 5, sat: 82 },
-  { key: "F", faction: 1, hue: 30, sat: 82 },
-  { key: "G", faction: 1, hue: 345, sat: 82 },
-  { key: "H", faction: 1, hue: 55, sat: 82 },
+  { key: "A", faction: 0 },
+  { key: "B", faction: 0 },
+  { key: "C", faction: 0 },
+  { key: "D", faction: 0 },
+  { key: "E", faction: 1 },
+  { key: "F", faction: 1 },
+  { key: "G", faction: 1 },
+  { key: "H", faction: 1 },
   // 8 / 9 = 双方各自的"未编队"。行为上仍是完整小队（有阵营、可调参），
   // 区别只有两点：寻敌不走小队统一目标；凝聚力认同阵营内所有单位。
-  { key: "散", faction: 0, hue: 210, sat: 26, loose: true },
-  { key: "散", faction: 1, hue: 8, sat: 28, loose: true }
+  { key: "散", faction: 0, loose: true },
+  { key: "散", faction: 1, loose: true }
 ];
-
-export const FACTION_COLOR = ["#4fa3e8", "#e8614f"];
 
 /**
  * 按模板造一个小队（不加入数组）
@@ -85,10 +89,6 @@ export function makeSquad(def, id, faction) {
     id,
     key: def.key || def.name || ("T" + id),
     faction: def.faction !== undefined ? def.faction : faction,
-    hue: def.hue === undefined ? 200 : def.hue,
-    sat: def.sat || 82,
-    lum: def.lum || 0,          // 颜色亮度偏移（正=提亮，散兵这类杂兵用负数压暗）
-    flatLum: def.flatLum === undefined ? null : def.flatLum,  // 给定则亮度恒定，不随 α 变
     loose: !!def.loose,
     p,
     goal: null, target: null,

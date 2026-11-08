@@ -1,12 +1,19 @@
 // 极简静态服务器（无依赖）。ES 模块不能用 file:// 加载，所以需要一个 http 服务。
 //   node serve.mjs           → 默认端口 8100
 //   node serve.mjs 8124      → 指定端口
+//
+// 有 dist/ 就服务构建产物（推荐：npm run build 之后跑这个）；
+// 没有 dist/ 就退回服务源码目录，方便看静态资源。
+
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = path.dirname(fileURLToPath(import.meta.url));
+const base = path.dirname(fileURLToPath(import.meta.url));
+const distDir = path.join(base, "dist");
+const root = fs.existsSync(path.join(distDir, "index.html")) ? distDir : base;
+
 const port = Number(process.argv[2] || 8100);
 
 const TYPES = {

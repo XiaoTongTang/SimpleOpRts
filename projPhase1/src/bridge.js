@@ -73,12 +73,18 @@ function describe(cmd) {
     case "duplicateShip": return "方案已复制";
     case "deleteShip": return "方案已删除";
     case "setShipFit": return "装配已更新";
+    case "setShipHull": return "船体已更换";
+    case "createSquadTemplate": return "编制已创建";
+    case "deleteSquadTemplate": return "编制已删除";
     case "queueShip": return "已下单，出锅进散兵池";
     case "instantBuild": return "快速建造完成，进散兵池";
     case "absorb": return "已吸收散兵";
     case "disband": return "已解散，舰船退回散兵池";
     case "editSquadTemplate": return "编制模板已更新，引用它的小队已追溯剔除";
     case "setFormation": return "阵型已切换";
+    case "setGoal": return "命令信标已下达";
+    case "clearGoal": return "命令信标已取消";
+    case "buildFromTemplate": return "小队已建造";
     default: return "已应用";
   }
 }

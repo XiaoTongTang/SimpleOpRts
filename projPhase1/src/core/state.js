@@ -106,7 +106,7 @@ export function createBuild(templates = SQUAD_TEMPLATES) {
     if (loose) {
       // 散兵池：没有编制，靠生产线出锅和踢出来的船填充
       squads.push({
-        id: i, key: "散", faction,
+        id: i, key: "散", name: "散兵", faction,
         loose: true, active: true,
         template: null,
         entries: [],
@@ -123,7 +123,7 @@ export function createBuild(templates = SQUAD_TEMPLATES) {
     const entries = cloneEntries(tpl.entries);
 
     squads.push({
-      id: i, key: "ABCDEFGH"[i % 8], faction,
+      id: i, key: "ABCDEFGH"[i % 8], name: tpl.name, faction,
       loose: false, active: true,
       template: tplId,
       entries,

@@ -15,7 +15,7 @@
  */
 
 import {
-  makeSquads, resizeSquad, computeCenters, computeSquadTargets, countMembers
+  makeSquads, makeSquad, resizeSquad, computeCenters, computeSquadTargets, countMembers
 } from "./sim/squad-layer.js";
 import { stepUnits } from "./sim/group-layer.js";
 import { Grid } from "./sim/spatial.js";
@@ -40,6 +40,7 @@ import * as shipLib from "./data/ship-library.js";
 import { computeShip, compileShip, setFit } from "./data/ship-template.js";
 import { getHull, HULL_TEMPLATES } from "./data/hull-templates.js";
 import { PLUGIN_TEMPLATES } from "./data/plugin-templates.js";
+import { ABILITY_TEMPLATES } from "./data/ability-templates.js";
 import { WEAPONS } from "./sim/weapons.js";
 
 const SPAWN_SPREAD = 55;
@@ -383,7 +384,8 @@ export class GameCore {
       units: this.units,
       squads: this.squads,
       fx: this.fx,
-      projectiles: this.projectiles
+      projectiles: this.projectiles,
+      time: this.time
     };
   }
 
@@ -461,6 +463,8 @@ export class GameCore {
 
       return {
         id: b.id, key: b.key, faction: b.faction, loose: b.loose,
+        // 界面上显示的名字（新建小队用模板名，初始队用字母）
+        name: b.name || (b.loose ? "散兵" : b.key),
         // 已解散 = 编制还在但场上没船；列表里仍然保留，方便重新吸收组建
         active: b.active !== false,
         template: b.template || null,
@@ -470,6 +474,10 @@ export class GameCore {
         // 阵型：当前 + 可选（有序，[0] 是模板默认）
         form: b.form || null,
         formations: [...(b.formations || [])],
+        // 战场上的质心 + 命令信标（没有信标就是 null）
+        x: sq ? sq.cx : 0,
+        y: sq ? sq.cy : 0,
+        goal: sq && sq.goal ? { x: sq.goal.x, y: sq.goal.y } : null,
         // 主方案（兼容旧 UI）
         ship: b.ship,
         shipName: ship?.name ?? "?",
@@ -481,8 +489,7 @@ export class GameCore {
         weapon: d?.weapons?.[0]?.id ?? "laser",
         count: b.loose ? alive : entriesCount(entries),
         alive,
-        cost,
-        hue: sq ? sq.hue : 200
+        cost
       };
     });
 
@@ -495,21 +502,68 @@ export class GameCore {
       moduleCap: this.moduleCap,
       commandCap: this.build.commandCap,
       commandUsed: commandsUsed(this.build, this.ships, this.units),
+      // 每个阵营一份统计：界面左上角的阵营切换要能看到对方的账
+      factions: [0, 1].map(f => {
+        let ships = 0, squads = 0;
+        for (const b of this.build.squads) {
+          if (b.faction !== f || b.active === false) continue;
+          squads++;
+        }
+        for (const u of this.units) {
+          const b = this.build.squads[u.squad];
+          if (b && b.faction === f) ships++;
+        }
+        return {
+          faction: f,
+          commandUsed: this.commandUsedOf(f),
+          commandCap: this.build.commandCap,
+          ships, squads
+        };
+      }),
       // 散兵池：没有编制，UI 单独显示（哪几型、各多少艘）
       pool: { faction: 0, size: poolSize, kinds: poolKinds },
       // 编制模板库：UI 编辑它就会追溯改所有引用它的小队
-      templates: Object.values(this.squadTemplates).map(t => ({
-        id: t.id,
-        name: t.name,
-        desc: t.desc || "",
-        entries: t.entries.map(e => ({
-          ship: e.ship,
-          name: this.ships[e.ship]?.name ?? "?",
-          n: e.n
-        })),
-        formations: [...(t.formations || [])],
-        usedBy: this.build.squads.filter(b => b.template === t.id).length
-      })),
+      templates: Object.values(this.squadTemplates).map(t => {
+        // 编制总览数值：把每条船的编译结果乘上数量
+        let hp = 0, shield = 0, dps = 0, command = 0, ships = 0;
+        const entries = t.entries.map(e => {
+          const rt = this.runtimeOf(e.ship);
+          const n = e.n | 0;
+          ships += n;
+          if (rt) {
+            hp += (rt.maxHp || 0) * n;
+            shield += (rt.maxShield || 0) * n;
+            command += (rt.command || 0) * n;
+            dps += (rt.weapons || []).reduce((s, id) => s + weaponDps(id), 0) * n;
+          }
+          return {
+            ship: e.ship,
+            name: this.ships[e.ship]?.name ?? "?",
+            n,
+            single: rt ? {
+              hp: rt.maxHp || 0,
+              shield: rt.maxShield || 0,
+              dps: Math.round((rt.weapons || []).reduce((s, id) => s + weaponDps(id), 0) * 10) / 10,
+              command: rt.command || 0
+            } : null
+          };
+        });
+        return {
+          id: t.id,
+          name: t.name,
+          desc: t.desc || "",
+          entries,
+          formations: [...(t.formations || [])],
+          usedBy: this.build.squads.filter(b => b.template === t.id).length,
+          stats: {
+            ships,
+            hp,
+            shield,
+            dps: Math.round(dps * 10) / 10,
+            command
+          }
+        };
+      }),
       shipRev: this.shipRev,
       squads,
       production: this.production.map(f => ({
@@ -541,24 +595,31 @@ export class GameCore {
       /** UI 选方案用；只给必要字段，不含 derived 明细 */
       shipList: shipLib.listShips(this.ships).map(s => {
         const hull = getHull(s.hull);
+        const d = s.derived || {};
         return {
           id: s.id,
           name: s.name,
           hull: s.hull,
           hullName: hull?.name ?? "?",
-          command: s.derived?.command ?? 0,
-          capacity: s.derived?.capacity ?? 0,
-          capacityUsed: s.derived?.capacityUsed ?? 0,
-          buildTime: s.derived?.buildTime ?? 0,
+          command: d.command ?? 0,
+          capacity: d.capacity ?? 0,
+          capacityUsed: d.capacityUsed ?? 0,
+          buildTime: d.buildTime ?? 0,
+          // 数值面板要的：血量 / 回血 / 护盾 / 护盾回复 / 受击半径
+          armor: d.armor ? { ...d.armor } : null,
+          dps: Math.round((d.weapons || []).reduce((n, w) => n + weaponDps(w.id), 0) * 10) / 10,
+          // 装了什么（名字 + 承载），右侧装配区要用
+          weapons: (d.weapons || []).map(w => ({ ...w })),
+          plugins: (d.plugins || []).map(p => ({ ...p })),
           // 在役舰数：>0 表示这个方案被锁死（不能改、不能删）
           inService: inServiceMap.get(s.id) || 0,
-          ok: !!s.derived?.ok,
-          reasons: s.derived?.reasons ?? [],
+          ok: !!d.ok,
+          reasons: d.reasons ?? [],
           fit: { ...s.fit },
           slots: hull
             ? [
-                ...hull.slots.weapon.map(w => ({ id: w.id, kind: "weapon", size: w.size })),
-                ...hull.slots.plugin.map(p => ({ id: p.id, kind: "plugin", size: null }))
+                ...hull.slots.weapon.map(w => ({ id: w.id, kind: "weapon", size: w.size, pos: w.pos || null })),
+                ...hull.slots.plugin.map(p => ({ id: p.id, kind: "plugin", size: null, pos: null }))
               ]
             : []
         };
@@ -607,6 +668,7 @@ export class GameCore {
       case "duplicateShip": return this.cmdDuplicateShip(cmd);
       case "deleteShip": return this.cmdDeleteShip(cmd);
       case "setShipFit": return this.cmdSetShipFit(cmd);
+      case "setShipHull": return this.cmdSetShipHull(cmd);
 
       // 生产
       case "setLineEfficiency": return this.cmdSetLineEfficiency(cmd);
@@ -618,8 +680,17 @@ export class GameCore {
       case "absorb": return this.cmdAbsorb(cmd);
       case "disband": return this.cmdDisband(cmd);
 
+      // 指挥：命令信标（小队会朝这个点移动）
+      case "setGoal": return this.cmdSetGoal(cmd);
+      case "clearGoal": return this.cmdClearGoal(cmd);
+
+      // 建造：按编制模板一键建一支小队
+      case "buildFromTemplate": return this.cmdBuildFromTemplate(cmd);
+
       // 编制模板 / 阵型
       case "editSquadTemplate": return this.cmdEditSquadTemplate(cmd);
+      case "createSquadTemplate": return this.cmdCreateSquadTemplate(cmd);
+      case "deleteSquadTemplate": return this.cmdDeleteSquadTemplate(cmd);
       case "setFormation": return this.cmdSetFormation(cmd);
 
       default:
@@ -718,7 +789,6 @@ export class GameCore {
     const tplId = cmd.templateId;
     const tpl = this.squadTemplates[tplId];
     if (!tpl) return reject([`没有这个编制模板 ${tplId}`]);
-
     const nextEntries = cmd.entries ? cloneEntries(cmd.entries) : cloneEntries(tpl.entries);
     const nextForms = cmd.formations ? [...cmd.formations] : [...tpl.formations];
 
@@ -760,6 +830,49 @@ export class GameCore {
     }
 
     return { ok: true, touched, ejected };
+  }
+
+  /** 新建一个空的编制模板（UI 的「新建编制」） */
+  cmdCreateSquadTemplate(cmd) {
+    const name = String(cmd.name ?? "").trim() || "新编制";
+    if (name.length > 16) return reject(["编制名最多 16 个字"]);
+
+    let id = cmd.id;
+    if (!id) {
+      let n = 1;
+      while (this.squadTemplates[`squad.usr_${String(n).padStart(4, "0")}`]) n++;
+      id = `squad.usr_${String(n).padStart(4, "0")}`;
+    }
+    if (this.squadTemplates[id]) return reject([`编制 id 已存在：${id}`]);
+
+    const entries = Array.isArray(cmd.entries) ? cloneEntries(cmd.entries) : [];
+    for (const e of entries) {
+      if (!this.ships[e.ship]) return reject([`未知舰船方案 ${e.ship}`]);
+      if (!Number.isInteger(e.n) || e.n < 0) return reject(["数量必须是 0 以上的整数"]);
+    }
+    const forms = Array.isArray(cmd.formations) ? [...cmd.formations] : ["form.standard"];
+    for (const f of forms) if (!FORMATIONS[f]) return reject([`未知阵型 ${f}`]);
+
+    this.squadTemplates[id] = {
+      id, name,
+      desc: cmd.desc || "",
+      entries,
+      formations: forms.slice(0, MAX_FORMATION_SLOTS)
+    };
+    return { ok: true, id };
+  }
+
+  /** 删除一个编制模板（还有小队在引用就拒绝） */
+  cmdDeleteSquadTemplate(cmd) {
+    const tpl = this.squadTemplates[cmd.templateId];
+    if (!tpl) return reject([`没有这个编制模板 ${cmd.templateId}`]);
+
+    const used = this.build.squads.filter(b => b.template === tpl.id);
+    if (used.length) {
+      return reject([`还有 ${used.length} 支小队在用这个编制，先换掉再删`]);
+    }
+    delete this.squadTemplates[tpl.id];
+    return { ok: true };
   }
 
   /**
@@ -892,6 +1005,24 @@ export class GameCore {
       return reject([`还有 ${used.length} 支小队在用这个方案，先换掉再删`]);
     }
     shipLib.removeShip(this.ships, id);
+    this.shipRev++;
+    return { ok: true };
+  }
+
+  cmdSetShipHull(cmd) {
+    const s = this.ships[cmd.shipId];
+    if (!s) return reject([`没有这艘舰船 ${cmd.shipId}`]);
+    if (!getHull(cmd.hull)) return reject([`未知船体 ${cmd.hull}`]);
+
+    const alive = this.shipInService(cmd.shipId);
+    if (alive > 0) {
+      return reject([
+        `该方案还有 ${alive} 艘在役，换船体会直接改掉它们的属性；拆光或换掉之前不能换`
+      ]);
+    }
+
+    const next = shipLib.setHull(this.ships, cmd.shipId, cmd.hull, this.time);
+    if (!next) return reject(["换船体失败"]);
     this.shipRev++;
     return { ok: true };
   }
@@ -1181,6 +1312,152 @@ export class GameCore {
   }
 
   // ------------------------------------------------------------------
+  // 指挥：命令信标
+  // ------------------------------------------------------------------
+
+  /** 命令信标：小队会朝这个点移动（每队一个点，命令力只有一个） */
+  cmdSetGoal(cmd) {
+    const ids = Array.isArray(cmd.squadIds)
+      ? cmd.squadIds
+      : (cmd.squadId !== undefined ? [cmd.squadId] : []);
+
+    const x = Number(cmd.x), y = Number(cmd.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return reject(["信标坐标不合法"]);
+    if (!ids.length) return reject(["没有选中小队"]);
+
+    let n = 0;
+    for (const id of ids) {
+      const sq = this.squads[id];
+      if (!sq) continue;
+      sq.goal = {
+        x: Math.max(0, Math.min(this.width, x)),
+        y: Math.max(0, Math.min(this.height, y))
+      };
+      n++;
+    }
+    if (!n) return reject(["没有这支小队"]);
+    return { ok: true, squads: n };
+  }
+
+  /** 取消命令信标：不给 squadIds 就是全部取消 */
+  cmdClearGoal(cmd) {
+    const ids = Array.isArray(cmd.squadIds)
+      ? cmd.squadIds
+      : (cmd.squadId !== undefined ? [cmd.squadId] : null);
+
+    let n = 0;
+    for (const sq of this.squads) {
+      if (!sq.goal) continue;
+      if (ids && !ids.includes(sq.id)) continue;
+      sq.goal = null;
+      n++;
+    }
+    if (!n) return reject(["没有可取消的命令信标"]);
+    return { ok: true, cleared: n };
+  }
+
+  // ------------------------------------------------------------------
+  // 建造：按编制模板一键建一支小队
+  // ------------------------------------------------------------------
+  //
+  // 消耗「编制总艘数」个预制模组，一次性把船造出来（在母舰旁边成型），
+  // 然后建一支引用这个模板的新小队。和「排队建造」的区别只有要不要等。
+
+  cmdBuildFromTemplate(cmd) {
+    const tpl = this.squadTemplates[cmd.templateId];
+    if (!tpl) return reject([`没有这个编制模板 ${cmd.templateId}`]);
+
+    const faction = cmd.faction ?? 0;
+    const poolId = this.poolOf(faction);
+    if (poolId < 0) return reject([`阵营 ${faction} 没有散兵池`]);
+
+    const entries = cloneEntries(tpl.entries).filter(e => e.n > 0);
+    const ships = entriesCount(entries);
+    if (!ships) return reject(["这个编制的船数是 0"]);
+    if (ships > MAX_PER_SQUAD) return reject([`单队编制上限 ${MAX_PER_SQUAD} 艘`]);
+
+    for (const e of entries) {
+      if (!this.runtimeOf(e.ship)) return reject([`方案 ${e.ship} 当前不可建造`]);
+    }
+
+    if (ships > this.build.modules) {
+      return reject([`预制模组不足：需 ${ships}，剩 ${Math.floor(this.build.modules)}`]);
+    }
+
+    const cost = entriesCost(entries, this.ships);
+    const used = this.commandUsedOf(faction);
+    if (used + cost > this.build.commandCap) {
+      return reject([`超出指挥值：需 ${used + cost}，上限 ${this.build.commandCap}`]);
+    }
+
+    // ---- 建队 ----
+    const id = this.build.squads.length;
+    const sameTpl = this.build.squads.filter(
+      b => b.template === tpl.id && b.faction === faction).length;
+    const name = sameTpl ? `${tpl.name} ${sameTpl + 1}` : tpl.name;
+
+    const b = {
+      id, key: tpl.name, name,
+      faction,
+      loose: false, active: true,
+      template: tpl.id,
+      entries,
+      formations: [...tpl.formations],
+      form: tpl.formations[0] || null,
+      ship: entries[0].ship,
+      count: ships
+    };
+    this.build.squads.push(b);
+
+    const sq = makeSquad({ key: name, faction }, id, faction);
+    this.squads.push(sq);
+    sq.p.members = ships;
+    applyShipToSquadParams(sq, this.ships[b.ship]);
+    if (b.form) applyFormation(sq.p, b.form);
+
+    // ---- 造舰：母舰旁边成型 ----
+    const cx = this.width * (faction === 0 ? 0.26 : 0.74);
+    const cy = this.height * 0.5;
+    const fresh = [];
+    for (const e of entries) {
+      const rt = this.runtimeOf(e.ship);
+      for (let k = 0; k < e.n; k++) {
+        const a = rand() * Math.PI * 2;
+        const r = Math.sqrt(rand()) * SPAWN_SPREAD;
+        const u = {
+          squad: id,
+          x: cx + Math.cos(a) * r,
+          y: cy + Math.sin(a) * r,
+          vx: 0, vy: 0, alpha: 0, cAll: 0
+        };
+        this.units.push(u);
+        fresh.push({ u, rt });
+      }
+    }
+    for (const it of fresh) initUnit(it.u, it.rt);
+
+    this.build.modules -= ships;
+    computeCenters(this.units, this.squads);
+    this.syncPoolCount(poolId);
+
+    return { ok: true, squadId: id, built: ships };
+  }
+
+  /** 某阵营当前占用的指挥值（编队按编制、散兵池按实际舰船） */
+  commandUsedOf(faction) {
+    let sum = 0;
+    for (const b of this.build.squads) {
+      if (b.faction !== faction || b.active === false) continue;
+      if (b.loose) {
+        for (const u of this.units) if (u.squad === b.id) sum += u.command || 0;
+      } else {
+        sum += entriesCost(squadEntries(b), this.ships);
+      }
+    }
+    return sum;
+  }
+
+  // ------------------------------------------------------------------
   // 只读查询：跟 command() 一样是唯一入口，只是不写状态
   // ------------------------------------------------------------------
 
@@ -1210,14 +1487,60 @@ export class GameCore {
         return {
           ok: true,
           hulls: Object.values(HULL_TEMPLATES).map(h => ({
-            id: h.id, name: h.name, class: h.class, command: h.command
+            id: h.id,
+            name: h.name,
+            class: h.class,
+            command: h.command,
+            capacity: h.capacity,
+            buildTime: h.buildTime,
+            armor: { ...h.armor },
+            sprite: h.sprite || null,
+            slots: {
+              weapon: h.slots.weapon.map(w => ({ id: w.id, size: w.size, pos: w.pos || null })),
+              plugin: h.slots.plugin.map(p => ({ id: p.id }))
+            }
           })),
           weapons: Object.values(WEAPONS)
             .filter(w => w.mountable !== false)
-            .map(w => ({ id: w.id, name: w.name, size: w.size, capacity: w.capacity })),
+            .map(w => {
+              const shots = Math.max(1, w.fire.burst | 0);
+              return {
+                id: w.id,
+                name: w.name,
+                size: w.size,
+                capacity: w.capacity,
+                command: w.command || 0,
+                buildTime: w.buildTime || 0,
+                delivery: w.delivery,
+                dmg: w.impact.dmg,
+                cd: w.fire.cd,
+                burst: shots,
+                maxHits: w.hit.maxHits,
+                pierce: !!w.impact.pierceShield,
+                blastR: w.impact.blastR || 0,
+                range: w.delivery === "hitscan"
+                  ? (w.travel.range || 0)
+                  : Math.round((w.travel.speed || 0) * (w.travel.lifetime || 0)),
+                dps: Math.round(weaponDps(w.id) * 10) / 10
+              };
+            }),
           plugins: Object.values(PLUGIN_TEMPLATES).map(p => ({
-            id: p.id, name: p.name, capacity: p.capacity,
-            tags: p.tags || [], hasAbility: (p.abilities || []).length > 0
+            id: p.id,
+            name: p.name,
+            desc: p.desc || "",
+            capacity: p.capacity,
+            command: p.command || 0,
+            buildTime: p.buildTime || 0,
+            mods: { ...(p.mods || {}) },
+            tags: p.tags || [],
+            abilities: (p.abilities || []).map(ref => {
+              const t = ABILITY_TEMPLATES[ref.id];
+              return t ? {
+                id: t.id, name: t.name, resource: t.resource,
+                radius: t.radius, rate: t.rate, count: ref.count || 1
+              } : { id: ref.id, name: ref.id };
+            }),
+            hasAbility: (p.abilities || []).length > 0
           }))
         };
       }
@@ -1244,4 +1567,13 @@ function countBySignature(units, squadId, sig) {
     if (u.squad === squadId && unitSignature(u) === sig) n++;
   }
   return n;
+}
+
+/** 一把武器不加成的理论 DPS（伤害 × 一轮发数 ÷ 一轮总冷却），单体口径 */
+export function weaponDps(id) {
+  const w = WEAPONS[id];
+  if (!w) return 0;
+  const shots = Math.max(1, w.fire.burst | 0);
+  const cd = (w.fire.cd || 1) + (w.fire.burstDelay || 0) * (shots - 1);
+  return (w.impact.dmg * shots) / Math.max(0.001, cd);
 }

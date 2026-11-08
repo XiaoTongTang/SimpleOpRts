@@ -10,7 +10,9 @@
  * 是为了让存档序列化不需要额外转换。
  */
 
-import { makeShip, computeShip, setFit, createShipTemplate, cloneShip } from "./ship-template.js";
+import { makeShip, computeShip, setFit, createShipTemplate, cloneShip,
+         createDefaultFit } from "./ship-template.js";
+import { getHull } from "./hull-templates.js";
 
 /**
  * 预置方案。id 稳定，永不重命名（存档与编制按 id 引用）。
@@ -129,6 +131,26 @@ export function setShipFit(lib, id, slotId, itemId, now = 0) {
   const r = setFit(s, slotId, itemId, now);
   if (r.ok) lib[id] = r.template;
   return r;
+}
+
+/**
+ * 换船体：槽位完全不同，装配清空重来。
+ * 「在役就禁止改」由 core 判断，这里只负责写库。
+ */
+export function setHull(lib, id, hullId, now = 0) {
+  const s = lib[id];
+  if (!s) return null;
+  if (!getHull(hullId)) return null;
+
+  const next = {
+    ...s,
+    hull: hullId,
+    fit: createDefaultFit(hullId),
+    meta: { ...s.meta, updatedAt: now }
+  };
+  next.derived = computeShip(next).derived;
+  lib[id] = next;
+  return next;
 }
 
 export { createShipTemplate };

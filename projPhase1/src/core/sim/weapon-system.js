@@ -16,6 +16,7 @@ import {
   UNIT_PAD, DEFAULT_HIT_R, SpatialDebug, SpatialStats, sweptHit,
 } from "./spatial.js";
 import { WEAPONS, WEAPON_IDS, weaponRange } from "./weapons.js";
+import { FACTION_HUE } from "./squad-layer.js";
 import { rand } from "./rng.js";
 
 export { WEAPONS, WEAPON_IDS };
@@ -360,7 +361,8 @@ export function stepWeapons(units, squads, projectiles, dt, hits, now = 0, fx = 
     if (!slots || slots.length === 0) continue;
 
     const myF = squads[u.squad].faction;
-    const hue = squads[u.squad].hue;
+    // 特效颜色跟阵营走（小队不再有自己的色相）
+    const hue = FACTION_HUE[myF] ?? 200;
 
     let fired = false;
     for (let s = 0; s < slots.length; s++) {

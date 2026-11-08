@@ -1,22 +1,24 @@
 /**
  * 渲染层接口（世界层）
  * -----------------------------------------------------------------
- * 目标：把「战场画什么」和「用什么画」分开。将来换成 PixiJS / WebGL
- * 只需要再写一个继承 WorldRenderer 的实现，模拟层、UI 层一行不用动。
+ * 目标：把「战场画什么」和「用什么画」分开。
+ * 现在的实现是 `render-pixi.js`（WebGL + 像素船图）；模拟层、UI 层一行不用动。
  *
  * 三条硬规矩（和空间索引层是同一个思路）：
  *   1. **只读 view** —— 渲染器不许回写任何游戏状态，也不许保存对数组的引用
  *      （下一帧这些数组可能被就地增删，UI 层只做投影，不做真相源）
  *   2. **不碰 ctx** —— 接口里没有 CanvasRenderingContext2D 字样，
  *      Pixi 实现自己管 GL 上下文
- *   3. **不读配置** —— 色相、半径这些都由调用方写进数据对象里
- *      （基地/塔自带 hue 和 radius），渲染器不需要 import 游戏参数表
+ *   3. **不读配置** —— 颜色、半径这些都由调用方写进数据对象里
+ *      （基地/塔自带 faction 和 radius），渲染器不需要 import 游戏参数表
+ *
+ * 注意：**小队没有自己的颜色**，战场上只按阵营着色（见 sim/squad-layer 的
+ * FACTION_HUE / FACTION_COLOR）。
  *
  * view 的形状见下方 RenderView。战场坐标系：单位坐标原点是战场左上角，
  * 屏幕 = 世界 * camera.zoom + camera.o{x,y}。
  *
  * 注意：UI 层（侧栏、战况行、按钮、胜负提示）**不在**这层里。
- * 它现在画在另一张 canvas 上，将来会变成 React + DOM。
  */
 
 /**
@@ -25,12 +27,13 @@
  * @property {number} height  屏幕高（CSS px）
  * @property {{ox:number, oy:number, zoom:number}} camera   世界→屏幕
  * @property {{w:number, h:number}} world                   战场世界尺寸（画边框）
- * @property {Array}  bases        [{ faction, hue, radius, x, y, hp, maxHp, dead, pulse }]
- * @property {Array}  towers       [{ faction, hue, radius, x, y, hp, maxHp, dead, pulse }]
+ * @property {Array}  bases        [{ faction, radius, x, y, hp, maxHp, dead, pulse }]
+ * @property {Array}  towers       [{ faction, radius, x, y, hp, maxHp, dead, pulse }]
  * @property {Array}  units        全部单位（只读）
- * @property {Array}  squads       小队表（只读）
- * @property {Array}  fx           特效（只读）
+ * @property {Array}  squads       小队表（只读，取 faction）
+ * @property {Array}  fx           特效（只读，带 hue）
  * @property {Array}  projectiles  飞行弹（只读）
+ * @property {number} time         战斗时间（秒，支援连线流动用）
  */
 
 /** 渲染器基类：所有实现都继承它，方便类型收敛与集中文档 */
