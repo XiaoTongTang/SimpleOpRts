@@ -58,8 +58,12 @@ export class GameCore {
     const width = opts.width ?? this.width ?? 1280;
     const height = opts.height ?? this.height ?? 720;
 
+    // 世界（地图）大小：固定，不跟窗口/视口走。视口只决定相机能看多少
     this.width = width;
     this.height = height;
+
+    // 相机是「观察状态」，不是战斗状态：zoom = 0 表示自动铺满视口
+    if (!this.cam) this.cam = { x: width / 2, y: height / 2, zoom: 0 };
 
     /** 随机种子：同一个 seed 每次重开都是同一场战斗 */
     this.seed = seedRng(opts.seed ?? this.seed ?? 1);
@@ -111,10 +115,88 @@ export class GameCore {
     return this;
   }
 
+  /** 视口 = 画布（战场那一格）的像素尺寸；只影响相机取景，不改世界大小 */
   setViewport(width, height) {
-    this.width = Math.max(1, width | 0);
-    this.height = Math.max(1, height | 0);
-    this.grid = new Grid(this.width, this.height);
+    this.vw = Math.max(1, width | 0);
+    this.vh = Math.max(1, height | 0);
+  }
+
+  // ------------------------------------------------------------------
+  // 相机（纯观察状态；画布多大只看这一块，世界永远是自己那么大）
+  // ------------------------------------------------------------------
+
+  viewportSize() {
+    return [this.vw || this.width, this.vh || this.height];
+  }
+
+  /** 铺满视口的缩放：窗口变小只会让这个基准变小 */
+  fitZoom() {
+    const [vw, vh] = this.viewportSize();
+    return Math.min(vw / this.width, vh / this.height) || 1;
+  }
+
+  /** 缩放范围：最小就是「整张图刚好铺满」，最大再放大 3.2 倍 */
+  clampZoom(z) {
+    const fit = this.fitZoom();
+    return Math.min(Math.max(z, fit), Math.max(fit * 3.2, 2.6));
+  }
+
+  /**
+   * 当前取景 → 给渲染层的世界→屏幕变换（屏幕坐标相对画布左上角）。
+   * 相机中心会被夹在世界范围内：视野比世界大时直接居中，不能让画面跑出地图外。
+   */
+  cameraView() {
+    const [vw, vh] = this.viewportSize();
+    const fit = this.fitZoom();
+    const z = this.cam.zoom > 0 ? this.clampZoom(this.cam.zoom) : fit;
+    const hw = vw / (2 * z), hh = vh / (2 * z);
+    const x = hw * 2 >= this.width ? this.width / 2 : clampNum(this.cam.x, hw, this.width - hw);
+    const y = hh * 2 >= this.height ? this.height / 2 : clampNum(this.cam.y, hh, this.height - hh);
+
+    // 夹回来的结果写回相机，避免拖到边界后「松手还在往外拖」
+    this.cam.x = x;
+    this.cam.y = y;
+    if (this.cam.zoom > 0) this.cam.zoom = z;
+
+    return { ox: vw / 2 - x * z, oy: vh / 2 - y * z, zoom: z, x, y, vw, vh };
+  }
+
+  /**
+   * 视角命令：
+   *   { x, y }        把相机中心移到世界坐标（小地图点哪看哪）
+   *   { zoom }        绝对缩放
+   *   { factor, ax, ay }  相对缩放，ax/ay 是画布内的锚点（滚轮以鼠标位置为中心）
+   *   { fit: true }   回到整图铺满
+   */
+  cmdSetCamera(cmd) {
+    if (cmd.fit) {
+      this.cam = { x: this.width / 2, y: this.height / 2, zoom: 0 };
+      return { ok: true };
+    }
+
+    const [vw, vh] = this.viewportSize();
+    const z0 = this.cameraView().zoom;
+
+    let z = z0;
+    if (Number.isFinite(cmd.zoom)) z = Number(cmd.zoom);
+    else if (Number.isFinite(cmd.factor) && cmd.factor > 0) z = z0 * Number(cmd.factor);
+    if (!Number.isFinite(z) || z <= 0) return reject(["缩放值无效"]);
+    z = this.clampZoom(z);
+
+    let x = Number.isFinite(cmd.x) ? Number(cmd.x) : this.cam.x;
+    let y = Number.isFinite(cmd.y) ? Number(cmd.y) : this.cam.y;
+
+    // 滚轮缩放：锚点下面的那块地面不动
+    if (Number.isFinite(cmd.factor) && Number.isFinite(cmd.ax) && Number.isFinite(cmd.ay)) {
+      const wx = this.cam.x + (cmd.ax - vw / 2) / z0;
+      const wy = this.cam.y + (cmd.ay - vh / 2) / z0;
+      x = wx - (cmd.ax - vw / 2) / z;
+      y = wy - (cmd.ay - vh / 2) / z;
+    }
+
+    this.cam = { x, y, zoom: z };
+    this.cameraView();              // 立刻夹回世界内
+    return { ok: true };
   }
 
   // ------------------------------------------------------------------
@@ -377,7 +459,7 @@ export class GameCore {
     return {
       width: this.width,
       height: this.height,
-      camera: { ox: 0, oy: 0, zoom: 1 },
+      camera: this.cameraView(),
       world: { w: this.width, h: this.height },
       bases: [],       // 阶段一未接基地/防御塔
       towers: [],
@@ -642,6 +724,9 @@ export class GameCore {
       case "setPaused":
         this.paused = !!cmd.value;
         return { ok: true };
+
+      // 视角：不是战斗状态，不参与模拟、不落盘
+      case "setCamera": return this.cmdSetCamera(cmd);
 
       case "reset":
         this.reset({ width: this.width, height: this.height });
@@ -1558,6 +1643,10 @@ export class GameCore {
 
 function reject(reasons, code) {
   return { ok: false, reasons, code: code || "rejected" };
+}
+
+function clampNum(v, lo, hi) {
+  return v < lo ? lo : v > hi ? hi : v;
 }
 
 /** 某小队里签名匹配的舰数（舰船没有方案引用，型号就是它的属性） */

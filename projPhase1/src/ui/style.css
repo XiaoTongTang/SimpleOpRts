@@ -1,4 +1,4 @@
-﻿/* =============================================================
+/* =============================================================
    SimpleOpRTS · 战斗指挥界面（游戏内）
    样式对照 design/261107_2机制改进/UI原型-1-战斗指挥.html：
    三列（左指挥/建造 · 中战场 · 右小队）+ 像素风硬边框。
@@ -34,11 +34,14 @@ html, body {
   font: 13px/1.5 var(--font);
 }
 
-#c { position: fixed; inset: 0; display: block; }
+/* 画布由 main.js 钉在「战场」那一格上（left/top/width/height 都是量出来的），
+   不再铺满窗口 —— 战场渲染区就等于中间那栏 */
+#c { position: fixed; left: 0; top: 0; display: block; z-index: 0; }
 
 #ui-root {
   position: fixed;
   inset: 0;
+  z-index: 1;
   pointer-events: none;          /* 只有面板/栏位自己接收事件 */
 }
 
@@ -63,7 +66,11 @@ html, body {
 .left {
   border-right: 2px solid var(--px-dark);
   box-shadow: 3px 0 0 rgba(0, 0, 0, .45);
+  overflow-y: auto;              /* 小地图插进来之后，矮窗口靠滚动 */
 }
+.left::-webkit-scrollbar { width: 8px; }
+.left::-webkit-scrollbar-thumb { background: rgba(90,130,170,.22); }
+.left::-webkit-scrollbar-track { background: transparent; }
 .right {
   border-left: 2px solid var(--px-dark);
   box-shadow: -3px 0 0 rgba(0, 0, 0, .45);
@@ -77,6 +84,22 @@ html, body {
   cursor: crosshair;
   user-select: none;
   pointer-events: auto;
+  /* 不能给背景色：画布在 UI 层下面，这里必须是透明的 */
+}
+.field.panning { cursor: grabbing; }
+
+/* ---------- 小地图（左栏顶部） ---------- */
+
+.mmcard { flex: none; }
+.mm-wrap { padding: 6px 8px 8px; }
+#mm {
+  display: block;
+  width: 100%;
+  height: 132px;
+  background: #070c12;
+  border: 2px solid var(--px-edge-dim);
+  cursor: crosshair;
+  image-rendering: pixelated;
 }
 
 .field-label {
@@ -183,12 +206,12 @@ html, body {
 
 .ccard {
   flex: none;
-  margin: 8px 10px 0;
+  margin: 6px 10px 0;
   border: 2px solid var(--px-edge-dim);
   background: var(--px-face);
 }
 .ccard .panel-head { border-bottom: 2px solid var(--px-edge-dim); }
-.ccard .sec { padding: 8px 10px 9px; }
+.ccard .sec { padding: 7px 10px 8px; }
 .ccard .kv { padding: 2px 0; }
 
 .panel-head {
@@ -209,7 +232,7 @@ html, body {
 .faction-bar {
   flex: none;
   display: flex; align-items: center; gap: 6px;
-  padding: 8px 10px;
+  padding: 6px 10px;
   border-bottom: 2px solid var(--px-edge-dim);
   background: rgba(8, 12, 18, .6);
 }
@@ -293,7 +316,7 @@ html, body {
 .line .note { font-size: 9px; color: #54697e; margin-top: 3px; }
 
 /* 小队模板：双列 */
-.tplcard { flex: 1; min-height: 168px; display: flex; flex-direction: column; }
+.tplcard { flex: 1; min-height: 132px; display: flex; flex-direction: column; }
 .tpl-grid {
   flex: 1; min-height: 0; overflow: auto;
   display: grid; grid-template-columns: 1fr 1fr; gap: 5px;
@@ -336,7 +359,7 @@ html, body {
 /* 左栏底部：全局按钮 */
 .foot {
   flex: none;
-  margin: 8px 10px;
+  margin: 6px 10px;
   display: flex; gap: 6px;
   font-size: 10px; color: var(--mute);
 }

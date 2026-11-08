@@ -51,6 +51,15 @@ export function createBridge(core, store, opts = {}) {
     },
 
     /**
+     * 视角控制（滚轮 / 中键拖拽 / 小地图）。
+     * 相机不是战斗状态：不走提示、不推快照 —— 它每帧都在动，
+     * 走 run() 会变成一秒钟几十条「已应用」。
+     */
+    camera(cmd) {
+      return core.command({ ...cmd, type: "setCamera" });
+    },
+
+    /**
      * 只读查询通道（不写状态）。
      * UI 用它在「真正发命令之前」问一句合不合法，比如装配预览。
      */

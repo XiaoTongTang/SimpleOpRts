@@ -11,8 +11,22 @@ pnpm test          # core 冒烟测试（无浏览器，23 项）
 pnpm dev           # dev server → http://127.0.0.1:8100/
 pnpm build         # 产出 dist/
 pnpm preview       # 预览 dist/
-pnpm start         # 备选：不打包，用 serve.mjs 直接跑源码
+pnpm start         # 跑 dist/（先 build）→ 同一个 8100（serve.mjs 有 dist 就用 dist）
 ```
+
+游戏内操作：
+
+| 操作 | 作用 |
+|---|---|
+| 左键拖拽 | 框选小队（坐标按相机换算，缩放后一样准） |
+| 单击地面 | 给选中的小队下达命令信标 |
+| `Shift` + 点击 | 追加选择 |
+| 滚轮 | 缩放相机（以鼠标位置为锚点） |
+| 中键拖拽 | 平移相机 |
+| 右栏顶部小地图 | 点/拖移动视角，双击回到全图 |
+
+> 地图是**固定大小**（2000×1200）的，不跟窗口走；窗口只决定「相机能看到多少」。
+
 
 标准 Vite CLI，配置只有一份 `vite.config.js`（React 插件 + 多入口 + 端口 8100）。
 

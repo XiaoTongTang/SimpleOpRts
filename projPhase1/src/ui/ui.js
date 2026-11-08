@@ -80,6 +80,8 @@ export function mountUI({ store, bridge }) {
         <div class="field-hint">
           <span><kbd>拖拽</kbd> 框选</span>
           <span><kbd>单击地面</kbd> 下达命令信标</span>
+          <span><kbd>滚轮</kbd> 缩放</span>
+          <span><kbd>中键拖拽</kbd> 平移</span>
           <span><kbd>Shift</kbd> 追加</span>
           <span><kbd>Esc</kbd> 取消选择</span>
         </div>
@@ -90,6 +92,13 @@ export function mountUI({ store, bridge }) {
       </div>
 
       <aside class="col right">
+        <div class="ccard mmcard">
+          <div class="panel-head">战场态势 <span class="n" id="mm-zoom">100%</span></div>
+          <div class="mm-wrap">
+            <canvas id="mm" title="点击 / 拖拽 移动视角 · 双击回到全图"></canvas>
+          </div>
+        </div>
+
         <div class="panel-head">小队 <span class="n" id="sq-count"></span></div>
         <div class="scroll" id="squad-list"></div>
         <div class="cmd">
@@ -115,13 +124,60 @@ export function mountUI({ store, bridge }) {
   const linksEl = el("beacon-links");
   const marqueeEl = el("marquee");
   const msgEl = el("msg");
+  const mmCanvas = el("mm");
+  const mmCtx = mmCanvas.getContext("2d");
+  const mmZoomEl = el("mm-zoom");
+
+  // 阵营色（只用于小地图上的点，和 Pixi 的 FACTION_TINT 同源）
+  const MM_COLOR = ["#4fa3e8", "#e8614f"];
 
   // ---- 纯 UI 状态 ----
   let faction = 0;                 // 当前查看/指挥的阵营
   const selected = new Set();      // 选中的小队 id
   let lastView = null;             // 最近一帧的只读投影（只用来摆 DOM）
   let drag = null;                 // 框选
+  let pan = null;                  // 中键拖屏
+  let mmDrag = false;              // 小地图拖拽
+  let mmView = null;               // 小地图的世界→小地图像素变换
+  let lastZoomText = "";
   let lastSig = { list: "", lines: "", tpls: "", top: "" };
+
+  // ----------------------------------------------------------------
+  // 相机（地图固定大小，取景靠这一套）
+  // ----------------------------------------------------------------
+
+  function camNow() {
+    return lastView?.camera || {
+      ox: 0, oy: 0, zoom: 1, x: 0, y: 0,
+      vw: fieldEl.clientWidth, vh: fieldEl.clientHeight
+    };
+  }
+
+  /** 画布内的像素（相对战场左上角）→ 世界坐标 */
+  function screenToWorld(px, py) {
+    const c = camNow();
+    return { x: (px - c.ox) / c.zoom, y: (py - c.oy) / c.zoom };
+  }
+
+  /** 世界坐标 → 战场内像素 */
+  function worldToScreen(wx, wy) {
+    const c = camNow();
+    return { x: wx * c.zoom + c.ox, y: wy * c.zoom + c.oy };
+  }
+
+  function localPoint(e) {
+    const r = fieldEl.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top, r };
+  }
+
+  /** 战场这一格在窗口里的位置与大小（main.js 据此摆画布） */
+  function fieldRect() {
+    const r = fieldEl.getBoundingClientRect();
+    return {
+      left: Math.round(r.left), top: Math.round(r.top),
+      width: Math.round(r.width), height: Math.round(r.height)
+    };
+  }
 
   // ----------------------------------------------------------------
   // 交互工具
@@ -223,8 +279,16 @@ export function mountUI({ store, bridge }) {
     bridge.run({ type: "clearGoal", squadIds: ids });
   });
 
-  // ---- 框选 / 点击地面 ----
+  // ---- 框选 / 点击地面 / 中键平移 / 滚轮缩放 ----
   fieldEl.addEventListener("mousedown", e => {
+    // 中键：拖屏（相机平移，不是选中）
+    if (e.button === 1) {
+      e.preventDefault();
+      const c = camNow();
+      pan = { sx: e.clientX, sy: e.clientY, x: c.x, y: c.y, zoom: c.zoom };
+      fieldEl.classList.add("panning");
+      return;
+    }
     if (e.button !== 0) return;
     if (e.target.closest(".marker")) return;
     const r = fieldEl.getBoundingClientRect();
@@ -237,7 +301,7 @@ export function mountUI({ store, bridge }) {
   });
 
   fieldEl.addEventListener("mousemove", e => {
-    if (!drag) return;
+    if (!drag || e.buttons !== 1) return;
     const r = drag.r;
     const x = e.clientX - r.left, y = e.clientY - r.top;
     const left = Math.min(x, drag.x0), top = Math.min(y, drag.y0);
@@ -250,18 +314,43 @@ export function mountUI({ store, bridge }) {
     drag.box = { left, top, w, h };
   });
 
+  // 滚轮缩放：以鼠标位置为锚点（放大时鼠标下的那块地面不动）
+  fieldEl.addEventListener("wheel", e => {
+    e.preventDefault();
+    const p = localPoint(e);
+    const factor = e.deltaY < 0 ? 1.16 : 1 / 1.16;
+    bridge.camera({ factor, ax: p.x, ay: p.y });
+  }, { passive: false });
+
+  window.addEventListener("mousemove", e => {
+    if (!pan) return;
+    bridge.camera({
+      x: pan.x - (e.clientX - pan.sx) / pan.zoom,
+      y: pan.y - (e.clientY - pan.sy) / pan.zoom
+    });
+  });
+
+  // 中键别触发浏览器的自动滚屏手势
+  document.addEventListener("auxclick", e => { if (e.button === 1) e.preventDefault(); });
+
   window.addEventListener("mouseup", e => {
+    if (pan) {
+      pan = null;
+      fieldEl.classList.remove("panning");
+      return;
+    }
     if (!drag) return;
     marqueeEl.style.display = "none";
     const d = drag;
     drag = null;
     if (d.moved && d.box) {
-      // 框选：把质心落在框里的小队选上（世界坐标 = 屏幕坐标，相机是 1:1）
+      // 框选：世界坐标要先过相机，战场不再是 1:1
       const box = d.box;
       const snap = store.getState().snap;
       const hit = mySquads(snap).filter(s => {
-        const x = s.x - d.r.left, y = s.y - d.r.top;
-        return x >= box.left && x <= box.left + box.w && y >= box.top && y <= box.top + box.h;
+        const p = worldToScreen(s.x, s.y);
+        return p.x >= box.left && p.x <= box.left + box.w
+            && p.y >= box.top && p.y <= box.top + box.h;
       });
       selected.clear();
       for (const s of hit) selected.add(s.id);
@@ -269,13 +358,38 @@ export function mountUI({ store, bridge }) {
       return;
     }
 
-    // 单击地面：坐标换算回世界，给选中的小队下命令信标
+    // 单击地面：屏幕坐标 → 世界坐标，给选中的小队下命令信标
     if (!selected.size) return;
-    const cam = (lastView && lastView.camera) || { ox: 0, oy: 0, zoom: 1 };
-    const wx = (e.clientX - cam.ox) / cam.zoom;
-    const wy = (e.clientY - cam.oy) / cam.zoom;
-    bridge.run({ type: "setGoal", squadIds: [...selected], x: wx, y: wy });
+    const p = localPoint(e);
+    const w = screenToWorld(p.x, p.y);
+    bridge.run({ type: "setGoal", squadIds: [...selected], x: w.x, y: w.y });
   });
+
+  // ---- 小地图：点/拖 移动视角，双击回全图 ----
+  function mmToWorld(e) {
+    if (!mmView) return null;
+    const r = mmCanvas.getBoundingClientRect();
+    // 画布有 2px 边框：clientLeft/clientTop 把点击换算回绘制坐标系
+    return {
+      x: (e.clientX - r.left - mmCanvas.clientLeft - mmView.mx) / mmView.s,
+      y: (e.clientY - r.top - mmCanvas.clientTop - mmView.my) / mmView.s
+    };
+  }
+
+  function mmJump(e) {
+    const w = mmToWorld(e);
+    if (w) bridge.camera({ x: w.x, y: w.y });
+  }
+
+  mmCanvas.addEventListener("mousedown", e => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    mmDrag = true;
+    mmJump(e);
+  });
+  mmCanvas.addEventListener("dblclick", () => bridge.camera({ fit: true }));
+  window.addEventListener("mousemove", e => { if (mmDrag) mmJump(e); });
+  window.addEventListener("mouseup", () => { mmDrag = false; });
 
   // Esc：取消选择
   window.addEventListener("keydown", e => {
@@ -534,17 +648,21 @@ export function mountUI({ store, bridge }) {
     lastView = view;
     const r = fieldEl.getBoundingClientRect();
     const cam = view.camera || { ox: 0, oy: 0, zoom: 1 };
-    const sx = x => x * cam.zoom + cam.ox - r.left;
-    const sy = y => y * cam.zoom + cam.oy - r.top;
+    const sx = x => x * cam.zoom + cam.ox;
+    const sy = y => y * cam.zoom + cam.oy;
 
     for (const sq of view.squads) {
       const node = markersEl.querySelector(`[data-key="${sq.id}"]`);
       if (!node) continue;
-      // 贴边的小队把标识夹在战场内，别让名字被切掉
-      const x = Math.min(Math.max(sx(sq.cx), 56), r.width - 56);
-      const y = Math.min(Math.max(sy(sq.cy), 16), r.height - 16);
-      node.style.left = x + "px";
-      node.style.top = y + "px";
+      const x = sx(sq.cx), y = sy(sq.cy);
+      // 出了取景范围就不画名字（小地图上还看得到）；贴边的夹回战场内，别让名字被切掉
+      if (x < -60 || y < -40 || x > r.width + 60 || y > r.height + 40) {
+        node.style.display = "none";
+        continue;
+      }
+      node.style.display = "";
+      node.style.left = Math.min(Math.max(x, 56), r.width - 56) + "px";
+      node.style.top = Math.min(Math.max(y, 16), r.height - 16) + "px";
     }
 
     // 信标 + 连线：只画当前阵营、且有 goal 的队伍
@@ -587,10 +705,74 @@ export function mountUI({ store, bridge }) {
     for (const node of [...beaconsEl.children]) {
       if (!seen.has(Number(node.dataset.beacon))) node.remove();
     }
+
+    drawMinimap(view);
+
+    const zt = Math.round(cam.zoom * 100) + "%";
+    if (zt !== lastZoomText) { lastZoomText = zt; mmZoomEl.textContent = zt; }
+  }
+
+  /**
+   * 小地图：整张固定地图 + 各队位置 + 当前取景框。
+   * 每帧重画，但只有几十个方块，比走一次 snapshot 便宜。
+   */
+  function drawMinimap(view) {
+    const cw = mmCanvas.clientWidth, ch = mmCanvas.clientHeight;
+    if (!cw || !ch || !view.world) return;
+
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (mmCanvas.width !== Math.round(cw * dpr) || mmCanvas.height !== Math.round(ch * dpr)) {
+      mmCanvas.width = Math.round(cw * dpr);
+      mmCanvas.height = Math.round(ch * dpr);
+    }
+
+    const g = mmCtx;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, cw, ch);
+
+    const W = view.world.w, H = view.world.h;
+    const s = Math.min(cw / W, ch / H);
+    const mx = (cw - W * s) / 2, my = (ch - H * s) / 2;
+    mmView = { s, mx, my };
+
+    g.fillStyle = "#0a1018";
+    g.fillRect(mx, my, W * s, H * s);
+
+    g.strokeStyle = "rgba(90,130,170,.14)";
+    g.lineWidth = 1;
+    g.beginPath();
+    for (let x = 250; x < W; x += 250) { g.moveTo(mx + x * s, my); g.lineTo(mx + x * s, my + H * s); }
+    for (let y = 250; y < H; y += 250) { g.moveTo(mx, my + y * s); g.lineTo(mx + W * s, my + y * s); }
+    g.stroke();
+
+    // 小队：方块大小跟着舰数走，当前阵营更亮
+    for (const sq of view.squads) {
+      if (!(sq.cn > 0)) continue;
+      const rad = Math.max(1.3, Math.min(3.4, 0.9 + Math.sqrt(sq.cn) * 0.4));
+      g.fillStyle = MM_COLOR[sq.faction] || "#9fb3c6";
+      g.globalAlpha = sq.faction === faction ? 1 : 0.72;
+      g.fillRect(mx + sq.cx * s - rad, my + sq.cy * s - rad, rad * 2, rad * 2);
+    }
+    g.globalAlpha = 1;
+
+    // 当前取景框
+    const cam = view.camera;
+    if (cam && cam.zoom > 0) {
+      const vx = cam.x - cam.vw / (2 * cam.zoom);
+      const vy = cam.y - cam.vh / (2 * cam.zoom);
+      g.strokeStyle = "rgba(214,236,255,.85)";
+      g.lineWidth = 1;
+      g.strokeRect(mx + vx * s + 0.5, my + vy * s + 0.5,
+        (cam.vw / cam.zoom) * s, (cam.vh / cam.zoom) * s);
+    }
+
+    g.strokeStyle = "rgba(61,97,131,.9)";
+    g.lineWidth = 1;
+    g.strokeRect(mx + 0.5, my + 0.5, W * s - 1, H * s - 1);
   }
 
   store.subscribe(render);
   render();
 
-  return { syncBattlefield };
+  return { syncBattlefield, fieldRect };
 }

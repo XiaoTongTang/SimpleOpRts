@@ -44,8 +44,8 @@ class PixiRenderer extends WorldRenderer {
     const app = new Application();
     await app.init({
       canvas,
-      width: window.innerWidth,
-      height: window.innerHeight,
+      width: 1,                            // 真正的尺寸由 layout 量出战场那一格再设
+      height: 1,
       background: BG,
       antialias: false,                    // 像素风：不要抗锯齿
       resolution: Math.max(1, window.devicePixelRatio || 1),
@@ -66,15 +66,18 @@ class PixiRenderer extends WorldRenderer {
     app.stage.addChild(this.world);
 
     this.atlas = await loadShipAtlas();
-    this.w = window.innerWidth;
-    this.h = window.innerHeight;
+    this.w = 1;
+    this.h = 1;
   }
 
   resize(width, height) {
     if (!this.app) return;
-    this.w = width;
-    this.h = height;
-    this.app.renderer.resize(width, height);
+    const w = Math.max(1, Math.round(width));
+    const h = Math.max(1, Math.round(height));
+    if (w === this.w && h === this.h) return;
+    this.w = w;
+    this.h = h;
+    this.app.renderer.resize(w, h);
   }
 
   draw(view) {
@@ -103,6 +106,9 @@ class PixiRenderer extends WorldRenderer {
     g.clear();
     const W = world.w, H = world.h;
 
+    // 地图本体：比画布外圈稍亮一点，缩到全图时能一眼看出战场边界
+    g.rect(0, 0, W, H).fill({ color: 0x0a1018, alpha: 1 });
+
     // 细网格：给空战场一点纵深（很淡，不抢单位）
     const STEP = 48;
     for (let x = 0; x <= W; x += STEP) {
@@ -111,6 +117,9 @@ class PixiRenderer extends WorldRenderer {
     for (let y = 0; y <= H; y += STEP) {
       g.moveTo(0, y).lineTo(W, y).stroke({ color: 0x5a82aa, alpha: 0.045, width: 1 });
     }
+
+    // 世界边框：地图是有边的，不是无限平面
+    g.rect(0, 0, W, H).stroke({ color: 0x3a5875, alpha: 0.75, width: 2 });
 
     // 四个角：比整圈虚线更干净
     const L = 26;

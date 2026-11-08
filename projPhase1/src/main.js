@@ -19,28 +19,45 @@ import { mountUI } from "./ui/ui.js";
 
 const FIXED = 1 / 60;
 
+// 地图是固定大小的：窗口怎么变都不动它，取景靠相机（滚轮缩放 / 中键拖拽 / 小地图）
+const WORLD_W = 2000;
+const WORLD_H = 1200;
+
 async function boot() {
   const cvs = document.getElementById("c");
   const renderer = await createPixiRenderer(cvs);
 
   // 先读方案库：玩家的设计跨局保留，重开不清空
   const core = new GameCore({
-    width: window.innerWidth,
-    height: window.innerHeight,
+    width: WORLD_W,
+    height: WORLD_H,
     ships: loadShips()
   });
   const bridge = createBridge(core, gameStore, { hz: 10 });
 
   let lastShipRev = core.shipRev;
 
-  renderer.resize(window.innerWidth, window.innerHeight);
   const ui = mountUI({ store: gameStore, bridge });
 
-  window.addEventListener("resize", () => {
-    const w = window.innerWidth, h = window.innerHeight;
-    renderer.resize(w, h);
-    bridge.resize(w, h);
-  });
+  /**
+   * 把画布钉在「战场」那一格上。
+   * 战场渲染区从此等于中间那栏 —— 不会再有内容跑到左右栏底下去。
+   */
+  function layout() {
+    const r = ui.fieldRect();
+    if (!r || r.width < 8 || r.height < 8) return;    // 构筑界面打开时战场不可见
+    cvs.style.left = r.left + "px";
+    cvs.style.top = r.top + "px";
+    cvs.style.width = r.width + "px";
+    cvs.style.height = r.height + "px";
+    renderer.resize(r.width, r.height);
+    bridge.resize(r.width, r.height);
+  }
+  layout();
+
+  // 战场那一格的尺寸变化（窗口缩放、面板宽度、进出构筑界面）都重新钉一次
+  new ResizeObserver(layout).observe(document.getElementById("field"));
+  window.addEventListener("resize", layout);
 
   // 调试钩子：允许在控制台直接发命令（等价于 UI 的一条命令）
   window.__CORE = core;
