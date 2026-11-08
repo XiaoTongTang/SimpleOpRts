@@ -204,7 +204,7 @@
   /* ---- 右栏：阵型编辑 ---- */
   .scroll.forms {
     flex: none;
-    height: 176px;
+    height: 196px;
     padding: 8px 10px;
   }
   .formrow {
@@ -212,8 +212,8 @@
     grid-template-columns: 16px 1fr;
     gap: 8px;
     align-items: start;
-    padding: 6px 8px;
-    margin-bottom: 6px;
+    padding: 5px 8px;
+    margin-bottom: 4px;
     cursor: pointer;
     border: 2px solid transparent;
     border-left: 3px solid transparent;
@@ -487,24 +487,22 @@ const SHIPS = {
 };
 
 const TEMPLATES = [
-  { id:'t1', name:'第一突击队', forms:['form.line','form.wedge'], entries:[
+  { id:'t1', name:'第一突击队', forms:['form.standard','form.dense'], entries:[
       { ship:'ship.std_falcon', n:16 }, { ship:'ship.std_bulwark', n:6 }, { ship:'ship.std_citadel', n:2 } ] },
-  { id:'t2', name:'盾墙队', forms:['form.circle','form.line'], entries:[
+  { id:'t2', name:'盾墙队', forms:['form.dense','form.wide'], entries:[
       { ship:'ship.std_bulwark', n:12 }, { ship:'ship.support_charger', n:4 } ] },
-  { id:'t3', name:'游击群', forms:['form.spread','form.column'], entries:[
+  { id:'t3', name:'游击群', forms:['form.guerrilla','form.wide'], entries:[
       { ship:'ship.std_hammer', n:8 }, { ship:'ship.support_repair', n:2 } ] },
-  { id:'t4', name:'旗舰队', forms:['form.circle','form.escort','form.wedge'], entries:[
+  { id:'t4', name:'旗舰队', forms:['form.dense','form.wide','form.standard'], entries:[
       { ship:'ship.std_citadel', n:4 }, { ship:'ship.support_charger', n:4 }, { ship:'ship.support_repair', n:2 } ] },
 ];
 
-/* 阵型模板库：跨小队共用；每个编制从里面勾选若干个用于战斗内快速切换 */
+/* 阵型模板库：4 条内置，全部取自 projPhase1/src/core/sim/templates.js 的现有战斗群（见 构筑机制设计.md §3） */
 const FORMS = [
-  { id:'form.line',   name:'横列线阵', desc:'正面接战 · 全队平铺',     tag:'通用' },
-  { id:'form.wedge',  name:'楔形突击', desc:'前锋收拢 · 两翼包抄',     tag:'进攻' },
-  { id:'form.circle', name:'环形防御', desc:'全向护盾 · 向核心靠拢',   tag:'防御' },
-  { id:'form.spread', name:'疏散散开', desc:'降低溅射与鱼雷群伤',      tag:'规避' },
-  { id:'form.column', name:'纵列机动', desc:'快速穿越 · 低接触面',      tag:'机动' },
-  { id:'form.escort', name:'护卫包夹', desc:'支援舰贴身核心',          tag:'支援' },
+  { id:'form.standard',  name:'标准间距集群阵型', desc:'密集整齐 · 凝聚强',   tag:'基准' },
+  { id:'form.guerrilla', name:'游击阵型',         desc:'松散风筝 · 远攻不贴脸', tag:'风筝' },
+  { id:'form.dense',     name:'密集集群阵型',     desc:'等距阵列 · 缓慢推进',  tag:'硬顶' },
+  { id:'form.wide',      name:'大间距集群阵型',   desc:'凝聚半径最大 · 摊开抱团', tag:'展开' },
 ];
 
 const COMMAND_CAP = 900;
