@@ -38,6 +38,13 @@ export function mountUI({ store, bridge }) {
 
       <div class="title">选中的小队</div>
       <div id="editor"></div>
+      <div class="btns">
+        <button data-act="absorb">吸收散兵补满</button>
+        <button data-act="disband">解散小队</button>
+      </div>
+
+      <div class="title">编制模板 <span class="hint">改动会追溯所有引用它的小队</span></div>
+      <div id="tpls"></div>
 
       <div class="title">舰船方案库 <span class="hint">点击编辑装配</span></div>
       <div id="ships"></div>
@@ -50,11 +57,14 @@ export function mountUI({ store, bridge }) {
       <div class="title">装配</div>
       <div id="fit"></div>
 
+      <div class="title">散兵池</div>
+      <div id="pool"></div>
+
       <div class="title">生产线 <span class="hint">阵营 0 · 效率/分钟</span></div>
       <div id="prod"></div>
       <div class="btns">
-        <button data-act="buildSquad">一键补满</button>
-        <button data-act="instant">瞬建 +1</button>
+        <button data-act="queue">排队建造 +1</button>
+        <button data-act="instant">快速建造 +1</button>
       </div>
 
       <div id="msg"></div>
@@ -74,10 +84,50 @@ export function mountUI({ store, bridge }) {
   const editorEl = root.querySelector("#editor");
   const shipsEl = root.querySelector("#ships");
   const fitEl = root.querySelector("#fit");
+  const poolEl = root.querySelector("#pool");
+  const tplsEl = root.querySelector("#tpls");
   const prodEl = root.querySelector("#prod");
   const msgEl = root.querySelector("#msg");
   const pauseBtn = root.querySelector('[data-act="pause"]');
   const resetBtn = root.querySelector('[data-act="reset"]');
+
+  // 当前选中的小队（吸收 / 解散 / 下生产单都以它为准）
+  const curSquad = () => {
+    const s = store.getState();
+    const list = s.snap?.squads || [];
+    return list.find(x => x.id === s.selectedId) || list.find(x => !x.loose) || list[0] || null;
+  };
+
+  root.querySelector('[data-act="absorb"]').addEventListener("click", () => {
+    const sq = curSquad();
+    if (sq) bridge.run({ type: "absorb", squadId: sq.id });
+  });
+
+  root.querySelector('[data-act="disband"]').addEventListener("click", () => {
+    const sq = curSquad();
+    if (!sq) return;
+    if (sq.loose) return actions.message("error", "散兵池不能解散");
+    if (!confirm(`解散「${sq.key}」？舰船会退回散兵池。`)) return;
+    bridge.run({ type: "disband", squadId: sq.id });
+  });
+
+  // 生产：造「方案库里选中的那一型」，出锅进散兵池（不绑小队）
+  const buildShipId = () => {
+    const s = store.getState();
+    return s.selectedShipId || (s.snap?.shipList || [])[0]?.id || null;
+  };
+
+  root.querySelector('[data-act="queue"]').addEventListener("click", () => {
+    const shipId = buildShipId();
+    if (!shipId) return actions.message("error", "先在方案库里选一个方案");
+    bridge.run({ type: "queueShip", faction: 0, shipId, count: 1 });
+  });
+
+  root.querySelector('[data-act="instant"]').addEventListener("click", () => {
+    const shipId = buildShipId();
+    if (!shipId) return actions.message("error", "先在方案库里选一个方案");
+    bridge.run({ type: "instantBuild", faction: 0, shipId, count: 1 });
+  });
 
   // 静态目录：武器/插件/船体，只问一次
   const catalog = bridge.query({ type: "catalog" }) || { weapons: [], plugins: [] };
@@ -118,6 +168,16 @@ export function mountUI({ store, bridge }) {
   let shipsSig = "";
   let fitSig = "";
   let prodSig = "";
+  let poolSig = "";
+  let tplSig = "";
+
+  /** 阵型短名：只用于按钮上的字 */
+  const FORM_SHORT = {
+    "form.standard": "标准",
+    "form.guerrilla": "游击",
+    "form.dense": "密集",
+    "form.wide": "大间距"
+  };
 
   function render() {
     const { snap, selectedId, selectedShipId, fps, msg } = store.getState();
@@ -137,12 +197,17 @@ export function mountUI({ store, bridge }) {
     // ---- 小队列表 ----
     listEl.innerHTML = snap.squads.map(s => {
       const sel = s.id === selectedId ? " sel" : "";
-      const dead = s.alive === 0 ? " dead" : "";
+      const dead = (s.alive === 0 || s.active === false) ? " dead" : "";
+      const num = s.loose ? `${s.alive}` : `${s.alive}<em>/${s.count}</em>`;
+      const tag = s.active === false ? `<em>解</em>` : "";
       return `
-        <div class="row${sel}${dead}" data-id="${s.id}">
+        <div class="row${sel}${dead}" data-id="${s.id}"
+             title="${s.loose ? `散兵池 · ${s.alive} 艘未编队`
+               : s.active === false ? `已解散 · 编制 ${s.count} 艘还在`
+               : `${s.shipName} × ${s.count}`}">
           <i style="background:hsl(${s.hue},72%,58%)"></i>
-          <span class="k">${s.key}</span>
-          <span class="v">${s.alive}<em>/${s.count}</em></span>
+          <span class="k">${s.key}${tag}</span>
+          <span class="v">${num}</span>
           <span class="c">${s.cost}</span>
         </div>`;
     }).join("");
@@ -156,49 +221,134 @@ export function mountUI({ store, bridge }) {
     // ---- 小队编辑区 ----
     const sel = snap.squads.find(s => s.id === selectedId) || snap.squads[0];
     if (sel) {
-      const sig = [sel.id, sel.ship, sel.count, sel.alive, sel.capacityUsed, snap.modules].join("|");
+      const sig = [sel.id, sel.template, sel.count, sel.alive, sel.form,
+                   (sel.entries || []).map(e => e.n + "/" + e.alive).join(","),
+                   snap.modules, sel.loose ? 1 : 0].join("|");
       if (sig !== editorSig) {
         editorSig = sig;
-        const ships = snap.shipList || [];
-        editorEl.innerHTML = `
-          <div class="line">
-            <label>方案</label>
-            <select data-act="ship">
-              ${ships.map(s =>
-                `<option value="${s.id}" ${s.id === sel.ship ? "selected" : ""}>${s.name} · ${s.command}</option>`
-              ).join("")}
-            </select>
-          </div>
-          <div class="line">
-            <label>编制</label>
-            <div class="stepper">
-              <button data-act="dec">−</button>
-              <b>${sel.count}</b>
-              <button data-act="inc">＋</button>
-              <button data-act="inc5">＋5</button>
+        if (sel.loose) {
+          // 散兵池没有编制：不给方案/编制控件，只说明它是什么
+          editorEl.innerHTML = `
+            <div class="line sub">
+              <span>未编队舰船 <b>${sel.alive}</b> 艘</span>
+              <span>指挥值 <b>${sel.cost}</b></span>
             </div>
-          </div>
-          <div class="line sub">
-            <span>活/编 <b>${sel.alive}/${sel.count}</b></span>
-            <span>承载 <b>${sel.capacityUsed}/${sel.capacity}</b></span>
-          </div>
-          <div class="line sub">
-            <span>本队指挥值 <b>${sel.cost}</b></span>
-            <span>单舰工时 <b>${sel.buildTime}s</b></span>
-          </div>
-        `;
+            <div class="line sub"><span>散兵池只是一个收纳队，没有编制。选中别的小队按「吸收散兵补满」从这里拿船。</span></div>
+          `;
+        } else {
+          const ships = snap.shipList || [];
+          const comp = (sel.entries || []).map(e => `
+            <div class="line"><span>${e.name}</span><b>${e.alive}/${e.n}</b></div>`).join("");
+          const formChips = (sel.formations || []).map(f => `
+            <button class="fch${f === sel.form ? " on" : ""}" data-form="${f}"
+                    title="${FORM_SHORT[f] || f}">${FORM_SHORT[f] || f}</button>`).join("");
 
-        const run = patch => bridge.run({ type: "setLoadout", squadId: sel.id, ...patch });
+          editorEl.innerHTML = `
+            <div class="line sub">
+              <span>模板 <b>${sel.templateName || "—（无编制小队）"}</b></span>
+              <span>编制 <b>${sel.count}</b> 艘</span>
+            </div>
+            ${comp || `<div class="line sub">没有编制</div>`}
+            <div class="line">
+              <label>阵型</label>
+              <div class="stepper">${formChips || "—"}</div>
+            </div>
+            <div class="line sub">
+              <span>本队指挥值 <b>${sel.cost}</b></span>
+              <span>承载 <b>${sel.capacityUsed}/${sel.capacity}</b></span>
+            </div>
+            <div class="line sub">
+              <span>${sel.template ? "改下面的方案/编制 = 脱离模板，变成自定义编制（失去吸收散兵）" : "无编制小队：自己拿一份编制，不能吸收散兵"}</span>
+            </div>
+            <div class="line">
+              <label>方案</label>
+              <select data-act="ship">
+                ${ships.map(s =>
+                  `<option value="${s.id}" ${s.id === sel.ship ? "selected" : ""}>${s.name} · ${s.command}</option>`
+                ).join("")}
+              </select>
+            </div>
+            <div class="line">
+              <label>编制</label>
+              <div class="stepper">
+                <button data-act="dec">−</button>
+                <b>${sel.count}</b>
+                <button data-act="inc">＋</button>
+                <button data-act="inc5">＋5</button>
+              </div>
+            </div>
+          `;
 
-        editorEl.querySelector('[data-act="ship"]').addEventListener("change", e =>
-          run({ ship: e.target.value }));
-        editorEl.querySelector('[data-act="inc"]').addEventListener("click", () =>
-          run({ count: sel.count + 1 }));
-        editorEl.querySelector('[data-act="dec"]').addEventListener("click", () =>
-          run({ count: Math.max(0, sel.count - 1) }));
-        editorEl.querySelector('[data-act="inc5"]').addEventListener("click", () =>
-          run({ count: sel.count + 5 }));
+          const run = patch => bridge.run({ type: "setLoadout", squadId: sel.id, ...patch });
+
+          editorEl.querySelector('[data-act="ship"]').addEventListener("change", e =>
+            run({ ship: e.target.value }));
+          editorEl.querySelector('[data-act="inc"]').addEventListener("click", () =>
+            run({ count: sel.count + 1 }));
+          editorEl.querySelector('[data-act="dec"]').addEventListener("click", () =>
+            run({ count: Math.max(0, sel.count - 1) }));
+          editorEl.querySelector('[data-act="inc5"]').addEventListener("click", () =>
+            run({ count: sel.count + 5 }));
+          editorEl.querySelectorAll("[data-form]").forEach(btn => {
+            btn.addEventListener("click", () =>
+              bridge.run({ type: "setFormation", squadId: sel.id, form: btn.dataset.form }));
+          });
+        }
       }
+    }
+
+    // ---- 编制模板（改动会追溯所有引用它的小队） ----
+    const tpls = snap.templates || [];
+    const sigT = tpls.map(t =>
+      `${t.id}:${t.usedBy}:${t.entries.map(e => e.ship + e.n).join("+")}`).join("|");
+    if (sigT !== tplSig) {
+      tplSig = sigT;
+      tplsEl.innerHTML = tpls.map(t => `
+        <div class="line sub">
+          <span><b>${t.name}</b></span>
+          <span>${t.usedBy} 队在用</span>
+        </div>
+        ${t.entries.map(e => `
+          <div class="line">
+            <span>${e.name}</span>
+            <div class="stepper">
+              <button class="mini" data-tpl="${t.id}" data-ship="${e.ship}" data-d="-1">−</button>
+              <b>${e.n}</b>
+              <button class="mini" data-tpl="${t.id}" data-ship="${e.ship}" data-d="1">＋</button>
+            </div>
+          </div>`).join("")}
+      `).join("");
+
+      tplsEl.querySelectorAll("[data-tpl]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const t = tpls.find(x => x.id === btn.dataset.tpl);
+          if (!t) return;
+          const d = Number(btn.dataset.d);
+          const entries = t.entries.map(e => ({
+            ship: e.ship,
+            n: e.ship === btn.dataset.ship ? Math.max(0, e.n + d) : e.n
+          })).filter(e => e.n > 0);
+          if (!entries.length) return actions.message("error", "编制不能为空");
+          bridge.run({ type: "editSquadTemplate", templateId: t.id, entries });
+        });
+      });
+    }
+
+    // ---- 散兵池明细 ----
+    const poolInfo = snap.pool || { size: 0, kinds: [] };
+    const sigP0 = poolInfo.kinds.map(k => `${k.name}:${k.n}`).join(",") + "|" + poolInfo.size;
+    if (sigP0 !== poolSig) {
+      poolSig = sigP0;
+      poolEl.innerHTML = `
+        <div class="line sub">
+          <span>蓝方未编队 <b>${poolInfo.size}</b> 艘</span>
+          <span class="hint">生产线出锅 / 解散小队都进这里</span>
+        </div>
+        ${poolInfo.kinds.length
+          ? poolInfo.kinds.map(k => `
+            <div class="row pool"><span class="k">${k.name}</span><span class="v">${k.n}</span></div>`).join("")
+          : `<div class="line sub">池子是空的</div>`}
+      `;
     }
 
     // ---- 方案库列表 ----
@@ -340,22 +490,6 @@ export function mountUI({ store, bridge }) {
             bridge.run({ type: "cancelOrder", jobId: btn.dataset.job }));
         });
       }
-    }
-
-    // 生产按钮跟着「选中的小队」走
-    const buildBtn = root.querySelector('[data-act="buildSquad"]');
-    const instantBtn = root.querySelector('[data-act="instant"]');
-    if (sel && buildBtn && !buildBtn.dataset.bound) {
-      buildBtn.dataset.bound = "1";
-      instantBtn.dataset.bound = "1";
-      buildBtn.addEventListener("click", () => {
-        const cur = store.getState();
-        bridge.run({ type: "buildSquad", squadId: (cur.snap.squads.find(s => s.id === cur.selectedId) || cur.snap.squads[0]).id });
-      });
-      instantBtn.addEventListener("click", () => {
-        const cur = store.getState();
-        bridge.run({ type: "instantRefill", squadId: (cur.snap.squads.find(s => s.id === cur.selectedId) || cur.snap.squads[0]).id, count: 1 });
-      });
     }
 
     // ---- 提示 ----

@@ -44,7 +44,10 @@ console.log("core 无 DOM 也能跑");
 {
   const core = new GameCore({ width: 1200, height: 700 });
   const n0 = core.units.length;
-  check("初始单位按编制生成", n0 === 8 * 24 + 2 * 6, String(n0));
+  const expect = core.build.squads.reduce((n, b) =>
+    n + (b.loose ? b.count : (b.entries || []).reduce((m, e) => m + e.n, 0)), 0);
+  check("初始单位按编制生成", n0 === expect, `${n0} vs ${expect}`);
+  check("初始就是 10 队 + 2 个散兵池", core.build.squads.length === 10);
   check("单位带战斗属性", typeof core.units[0].hp === "number");
   check("血量来自船体模板（60）", core.units[0].maxHp === 60, String(core.units[0].maxHp));
   check("受击半径来自船体模板（6）", core.units[0].hitR === 6, String(core.units[0].hitR));

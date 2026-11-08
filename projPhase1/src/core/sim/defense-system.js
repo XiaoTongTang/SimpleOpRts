@@ -46,7 +46,65 @@ export function initUnit(u, rt) {
   // 支援能力挂在「这一艘船」上，不再读小队
   u.abilities = rt.abilities || [];
 
+  // 这一艘船占的指挥值（散兵池按实际舰船计价用得到）
+  u.command = rt.command || 0;
+
   u.fxCd = 0;                   // 支援特效节流
+}
+
+/**
+ * 舰船「型号签名」。
+ * -----------------------------------------------------------------
+ * 舰船身上不存方案引用，那怎么判断散兵池里哪些船能补进一支编制？
+ * 答案：**属性相同就是同型**。签名取的是玩家改不动的那些结构属性
+ * （最大血量 / 护盾容量 / 受击半径 / 射速 / 武器槽 / 能力），
+ * 战损（当前血量）不参与。
+ *
+ * 两个方案的签名撞了，说明它们打起来完全一样，互相顶替没有区别。
+ */
+export function unitSignature(u) {
+  return [
+    u.maxHp, u.maxShieldBase || 0, u.hitR, u.fireRate,
+    (u.weapons || []).map(w => w.id).join(","),
+    (u.abilities || []).map(a => a.id).join(",")
+  ].join("|");
+}
+
+/** 方案编译结果 → 签名，必须和 unitSignature 用同一套口径 */
+export function runtimeSignature(rt) {
+  return [
+    rt.maxHp, rt.maxShield || 0,
+    rt.hitR === undefined ? DEFAULT_HIT_R : rt.hitR,
+    rt.fireRate || 1,
+    (rt.weapons || []).join(","),
+    (rt.abilities || []).map(a => a.id).join(",")
+  ].join("|");
+}
+
+/**
+ * 把一艘**已经存在**的船改装成另一种规格，保留战损比。
+ *
+ * 这条是「强行改方案」用的：正常流程被命令层的锁挡在外面
+ * （在役就禁止改），只有绕过锁的强制同步才会调它。
+ */
+export function retrofitUnit(u, rt) {
+  const ratio = u.maxHp > 0 ? Math.max(0, u.hp) / u.maxHp : 1;
+
+  u.maxHp = rt.maxHp;
+  u.hp = Math.max(1, rt.maxHp * ratio);
+  u.regen = rt.regen || 0;
+
+  u.maxShieldBase = rt.maxShield || 0;
+  u.shieldRegen = rt.shieldRegen || 0;
+  u.shieldCap = u.maxShieldBase + (u.grantMax || 0);
+  if (u.shield > u.shieldCap) u.shield = u.shieldCap;
+
+  u.weapons = buildWeaponStates(rt, u.weapons || []);   // 用槽位继承冷却
+  u.weapon = u.weapons[0]?.id ?? "laser";
+  u.hitR = rt.hitR === undefined ? DEFAULT_HIT_R : rt.hitR;
+  u.abilities = rt.abilities || [];
+  u.fireRate = rt.fireRate || 1;
+  u.command = rt.command || 0;
 }
 
 /** 把 sq.p（小队参数）当成一份运行时规格；只为旧路径保留 */

@@ -58,33 +58,43 @@ console.log("\n[3] 强制同步会改到在役舰船（所以锁是唯一防线�
   const core = mk();
   eq("改之前 w2 是激光", unitOf(core, 0).weapons[1].id, "laser");
 
+  const oldSig = core.sigOf("ship.std_falcon");
   const r = setFit(core.ships["ship.std_falcon"], "w2", "missile", 0);
   core.ships["ship.std_falcon"] = r.template;
-  core.syncShipUsage("ship.std_falcon");          // 这条就是被锁挡住的路径
+  core.shipRev++;                                  // 让编译缓存失效
+  core.syncShipUsage("ship.std_falcon", oldSig);   // 这条就是被锁挡住的路径
 
   eq("同步之后在场舰船变成导弹", unitOf(core, 0).weapons[1].id, "missile");
   eq("小队默认参数也变了", core.squads[0].p.weapons[1], "missile");
 }
 
-console.log("\n[4] 补员造出来的船，拿到出生那一刻的属性");
+console.log("\n[4] 造出来的船，拿到出生那一刻的属性");
 {
   const core = mk();
   const b = core.build.squads[0];
-  core.units = core.units.filter(u => u.squad !== b.id);   // 先打空这支小队
   core.build.modules = 10;
 
-  const r = core.command({ type: "instantRefill", squadId: b.id, count: 3 });
-  ok("补了 3 艘", r.ok === true && r.built === 3, JSON.stringify(r));
+  // 快速建造进散兵池，再吸收进编制
+  const r = core.command({ type: "instantBuild", faction: 0, shipId: b.ship, count: 3 });
+  ok("造了 3 艘", r.ok === true && r.built === 3, JSON.stringify(r));
+
+  const pid = core.poolOf(0);
+  eq("都进了散兵池", core.units.filter(u => u.squad === pid &&
+    u.maxHp === core.units[0].maxHp).length >= 3, true);
+
+  // 把 A 队打空，再从池子里吸收回来
+  core.units = core.units.map(u => u.squad === b.id ? { ...u, squad: pid } : u);
+  const ab = core.command({ type: "absorb", squadId: b.id });
+  ok("吸收成功", ab.ok === true && ab.moved > 0, JSON.stringify(ab));
 
   const fresh = core.units.filter(u => u.squad === b.id);
-  eq("3 艘都在场", fresh.length, 3);
   ok("都带完整战斗属性", fresh.every(u =>
     u.maxHp > 0 && Array.isArray(u.weapons) && u.weapons.length === 2));
 
-  // 换掉方案库里的方案，新补的船不受影响（属性已经写在自己身上）
+  // 换掉方案库里的方案，已经造出来的船不受影响（属性写在自己身上）
   const rr = setFit(core.ships["ship.std_falcon"], "w1", "missile", 0);
   core.ships["ship.std_falcon"] = rr.template;
-  eq("补员船的 w1 还是激光", fresh[0].weapons[0].id, "laser");
+  eq("已造出的船 w1 还是激光", fresh[0].weapons[0].id, "laser");
 }
 
 console.log("\n[5] 一队里可以混装不同属性的船（散兵队的底座）");

@@ -20,7 +20,8 @@ import {
 import { stepUnits } from "./sim/group-layer.js";
 import { Grid } from "./sim/spatial.js";
 import { stepWeapons } from "./sim/weapon-system.js";
-import { applyDamage, stepRegen, applyCombatParams, initUnit } from "./sim/defense-system.js";
+import { applyDamage, stepRegen, applyCombatParams, initUnit, retrofitUnit,
+         unitSignature, runtimeSignature } from "./sim/defense-system.js";
 import { stepSupport } from "./sim/support-system.js";
 import {
   createFacility, enqueue, stepFacility, cancelJob,
@@ -29,8 +30,12 @@ import {
 import { seedRng, rand } from "./sim/rng.js";
 import {
   MAX_PER_SQUAD, MODULES_PER_SHIP,
-  createBuild, entryCost, commandsUsed, applyShipToSquadParams
+  createBuild, entryCost, entriesCost, squadEntries, commandsUsed, applyShipToSquadParams
 } from "./state.js";
+import {
+  cloneEntries, cloneTemplateLibrary, entriesCount, MAX_FORMATION_SLOTS
+} from "./data/squad-templates.js";
+import { FORMATIONS, applyFormation } from "./data/formation-templates.js";
 import * as shipLib from "./data/ship-library.js";
 import { computeShip, compileShip, setFit } from "./data/ship-template.js";
 import { getHull, HULL_TEMPLATES } from "./data/hull-templates.js";
@@ -76,7 +81,13 @@ export class GameCore {
       : (this.ships && Object.keys(this.ships).length ? this.ships : shipLib.createLibrary());
     this.shipRev = this.shipRev ?? 0;      // 方案库版本号，存档层据此判断要不要写盘
     this.unlocked = opts.unlocked || this.unlocked || null; // 蓝图解锁表；null = 不校验
-    this.build = createBuild();
+
+    // 编制模板库：每个 core 一份自己的（和舰船方案库一样，reset 不清空）
+    this.squadTemplates = (this.squadTemplates && Object.keys(this.squadTemplates).length)
+      ? this.squadTemplates
+      : cloneTemplateLibrary();
+
+    this.build = createBuild(this.squadTemplates);
 
     /** 生产：阶段一没有母舰实体，直接用方舟级的产能参数虚拟一个 */
     const ms = getHull("hull.ark").mothership;
@@ -141,14 +152,61 @@ export class GameCore {
   }
 
   /**
-   * 某方案在战场上还有多少活的舰船。
-   * 按「引用这个方案的小队」统计——这就是方案锁定的判据。
+   * 某方案在战场上有多少活的舰船（= 锁定判据）。
+   *
+   * 舰船没有方案引用，所以「此方案对应的舰船」只能这样认：
+   * 编制里列了这个方案的小队里，属性和它同型号的那些船。
+   * 散兵池不算（池子里的船没有编制归属，强行改方案也不会追到它们）。
    */
   shipInService(shipId) {
+    const sig = this.sigOf(shipId);
+    if (!sig) return 0;
     let n = 0;
     for (const b of this.build.squads) {
-      if (b.ship !== shipId) continue;
-      n += countMembers(this.units, b.id);
+      if (b.loose) continue;
+      if (!squadEntries(b).some(e => e.ship === shipId && e.n > 0)) continue;
+      n += countBySignature(this.units, b.id, sig);
+    }
+    return n;
+  }
+
+  // ------------------------------------------------------------------
+  // 散兵池
+  // ------------------------------------------------------------------
+  //
+  // 每个阵营有一个散兵池（build.squads 里的 loose 项）：收纳所有未编队舰船。
+  // 它在战场上就是一支普通小队——有位置、能领命令信标，只是没有编制。
+  //
+  // 池子的入口：生产线造好的船、被解散的小队、被编制剔除的船。
+  // 出口：吸收散兵（按同型签名挑船补进编制）。
+
+  /** 某阵营散兵池的小队 id；没有返回 -1 */
+  poolOf(faction) {
+    const b = this.build.squads.find(s => s.loose && s.faction === faction);
+    return b ? b.id : -1;
+  }
+
+  /** 池子没有编制：把 b.count 同步成实际舰数，UI 和指挥值都读它 */
+  syncPoolCount(poolId) {
+    const b = this.build.squads[poolId];
+    if (!b || !b.loose) return;
+    b.count = countMembers(this.units, poolId);
+  }
+
+  /** 某方案的型号签名（吸收散兵时按它挑船；UI 也能用） */
+  sigOf(shipId) {
+    const rt = this.runtimeOf(shipId);
+    return rt ? runtimeSignature(rt) : "";
+  }
+
+  /** 某阵营散兵池里某型号的舰数 */
+  poolCountOf(faction, sig) {
+    const poolId = this.poolOf(faction);
+    if (poolId < 0) return 0;
+    let n = 0;
+    for (const u of this.units) {
+      if (u.squad !== poolId) continue;
+      if (unitSignature(u) === sig) n++;
     }
     return n;
   }
@@ -157,42 +215,50 @@ export class GameCore {
   spawnAll() {
     this.units.length = 0;
     const cols = [this.width * 0.26, this.width * 0.74];
+    const pending = [];        // { u, shipId }：先摆位置，再统一初始化
 
     // 第一遍：只摆位置。随机数的消耗顺序和以前完全一致，
     // 免得「加属性层」这件事顺手把整局战斗的走向也改掉。
     for (const b of this.build.squads) {
       const sq = this.squads[b.id];
+      const entries = b.loose
+        ? [{ ship: b.ship, n: b.count }]
+        : squadEntries(b);
+
       sq.p.members = b.count;
-      // 小队默认参数仍然按当前方案编译（之后补充的新船沿用它）
+      // 小队默认参数按主方案编译（战斗属性由每艘船自己带，不从这里来）
       applyShipToSquadParams(sq, this.ships[b.ship]);
+      if (b.form) applyFormation(sq.p, b.form);      // 阵型：十二个参数整块覆盖
 
       const row = b.id % 4;
       const bx = cols[b.faction] ?? this.width * 0.5;
       const by = this.height * (0.14 + row * 0.235);
 
-      for (let k = 0; k < b.count; k++) {
-        const a = rand() * Math.PI * 2;
-        const r = Math.sqrt(rand()) * SPAWN_SPREAD;
-        this.units.push({
-          x: bx + Math.cos(a) * r,
-          y: by + Math.sin(a) * r,
-          vx: 0, vy: 0,
-          squad: b.id,
-          alpha: 0, cAll: 0
-        });
+      // 混编小队按 entries 顺序铺开：先矛隼后重锤，位置混在一起
+      for (const e of entries) {
+        for (let k = 0; k < (e.n | 0); k++) {
+          const a = rand() * Math.PI * 2;
+          const r = Math.sqrt(rand()) * SPAWN_SPREAD;
+          const u = {
+            x: bx + Math.cos(a) * r,
+            y: by + Math.sin(a) * r,
+            vx: 0, vy: 0,
+            squad: b.id,
+            alpha: 0, cAll: 0
+          };
+          this.units.push(u);
+          pending.push({ u, shipId: e.ship });
+        }
       }
     }
 
     computeCenters(this.units, this.squads);
 
-    // 第二遍：把每个方案编译出来的属性写进属于它的那批船
-    for (const b of this.build.squads) {
-      const rt = this.runtimeOf(b.ship);
-      if (!rt) continue;
-      for (const u of this.units) {
-        if (u.squad === b.id) initUnit(u, rt);
-      }
-    }
+    // 第二遍：按每艘船自己的方案初始化战斗属性
+    for (const it of pending) initUnit(it.u, this.runtimeOf(it.shipId));
+
+    // 池子没有编制，count 直接同步成实际舰数
+    for (const b of this.build.squads) if (b.loose) this.syncPoolCount(b.id);
   }
 
   // ------------------------------------------------------------------
@@ -266,27 +332,29 @@ export class GameCore {
     }
   }
 
-  /** 一艘船造好了：带着这艘船的方案身份出生（编制设计值不变，那是指挥值已经付过的） */
+  /**
+   * 一艘船造好了：**并入该阵营的散兵池**。
+   * 出厂的船不直接进任何编制——编制要靠「吸收散兵」把船拉进去。
+   */
   completeJob(job) {
-    const sq = this.squads[job.squadId];
-    if (!sq) return;
-    const alive = countMembers(this.units, job.squadId);
-    if (alive >= MAX_PER_SQUAD) return;          // 已经到单队上限，这艘弃掉
+    const poolId = this.poolOf(job.faction);
+    if (poolId < 0) return;
+    const sq = this.squads[poolId];
+    const rt = this.runtimeOf(job.shipId);
+    if (!rt) return;
 
-    const b = this.build.squads[job.squadId];
-    const rt = this.runtimeOf(job.shipId || b?.ship);
-
-    // 落在小队重心附近（先取位置、后初始化，保持随机数消耗顺序与旧版一致）
-    const cx = sq.cn ? sq.cx : this.width * 0.5;
+    // 落在池子重心附近（先取位置、后初始化，保持随机数消耗顺序与旧版一致）
+    const cx = sq.cn ? sq.cx : this.width * (job.faction === 0 ? 0.26 : 0.74);
     const cy = sq.cn ? sq.cy : this.height * 0.5;
     const a = rand() * Math.PI * 2;
     const r = Math.sqrt(rand()) * 55;
 
-    const u = this.makeUnit(job.squadId, rt, cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+    const u = this.makeUnit(poolId, rt, cx + Math.cos(a) * r, cy + Math.sin(a) * r);
     if (!u) return;
 
     this.units.push(u);
     computeCenters(this.units, this.squads);
+    this.syncPoolCount(poolId);
   }
 
   stepFx(dt) {
@@ -324,33 +392,96 @@ export class GameCore {
    * 注意这里没有 units —— 每帧的单位数组永远不进 React。
    */
   snapshot() {
-    // 各方案的在役舰数（一次遍历：单位 → 它所属小队的方案）
-    const shipOfSquad = this.build.squads.map(b => b.ship);
-    const inService = new Map();
+    // 一次遍历：按「型号签名」数场上的船——在役数、池子分类都用它
+    const sigPool0 = new Map();         // sig -> 蓝方池子里的艘数（给 UI 显示）
+    const sigBySquad = new Map();       // squadId -> Map(sig -> n)
     for (const u of this.units) {
-      const id = shipOfSquad[u.squad];
-      if (id) inService.set(id, (inService.get(id) || 0) + 1);
+      const b = this.build.squads[u.squad];
+      if (!b) continue;
+      const k = unitSignature(u);
+      if (b.loose && b.faction === 0) sigPool0.set(k, (sigPool0.get(k) || 0) + 1);
+
+      let m = sigBySquad.get(u.squad);
+      if (!m) { m = new Map(); sigBySquad.set(u.squad, m); }
+      m.set(k, (m.get(k) || 0) + 1);
+    }
+
+    // 签名 → 方案名：舰船没有方案引用，只能靠签名认出是哪一型
+    const sigName = new Map();
+    for (const id of Object.keys(this.ships)) {
+      const rt = this.runtimeOf(id);
+      if (rt) sigName.set(runtimeSignature(rt), this.ships[id].name);
+    }
+    const poolKinds = [...sigPool0.entries()].map(([sig, n]) => ({
+      name: sigName.get(sig) || "（已下线的改型）", n
+    })).sort((a, b) => b.n - a.n || (a.name < b.name ? -1 : 1));
+    const poolSize = poolKinds.reduce((s, k) => s + k.n, 0);
+
+    // 在役：编制里引用了这个方案、且场上真有同型号的船
+    const inServiceMap = new Map();
+    for (const b of this.build.squads) {
+      if (b.loose) continue;
+      const m = sigBySquad.get(b.id);
+      if (!m) continue;
+      for (const e of squadEntries(b)) {
+        if (!(e.n > 0)) continue;
+        const sig = this.sigOf(e.ship);
+        const n = m.get(sig) || 0;
+        if (n) inServiceMap.set(e.ship, (inServiceMap.get(e.ship) || 0) + n);
+      }
     }
 
     const squads = this.build.squads.map(b => {
       const sq = this.squads[b.id];
       const ship = this.ships[b.ship];
       const d = ship?.derived;
+      const alive = countMembers(this.units, b.id);
+      const aliveBySig = sigBySquad.get(b.id) || new Map();
+
+      // 编制（entries）+ 每种型号现在活了几艘
+      const entries = b.loose ? [] : squadEntries(b);
+      const comp = entries.map(e => {
+        const sig = this.sigOf(e.ship);
+        return {
+          ship: e.ship,
+          name: this.ships[e.ship]?.name ?? "?",
+          n: e.n,
+          alive: aliveBySig.get(sig) || 0
+        };
+      });
+
+      // 散兵池没有编制：数量就是实际舰数，指挥值按每艘船自己的 command 累加
+      let cost;
+      if (b.loose) {
+        cost = 0;
+        for (const u of this.units) if (u.squad === b.id) cost += u.command || 0;
+      } else {
+        cost = entriesCost(entries, this.ships);
+      }
+
       return {
         id: b.id, key: b.key, faction: b.faction, loose: b.loose,
-        // 新字段
+        // 已解散 = 编制还在但场上没船；列表里仍然保留，方便重新吸收组建
+        active: b.active !== false,
+        template: b.template || null,
+        templateName: b.template ? (this.squadTemplates[b.template]?.name ?? b.template) : null,
+        // 编制：多型号
+        entries: comp,
+        // 阵型：当前 + 可选（有序，[0] 是模板默认）
+        form: b.form || null,
+        formations: [...(b.formations || [])],
+        // 主方案（兼容旧 UI）
         ship: b.ship,
         shipName: ship?.name ?? "?",
         capacity: d?.capacity ?? 0,
         capacityUsed: d?.capacityUsed ?? 0,
         command: d?.command ?? 0,
         buildTime: d?.buildTime ?? 0,
-        // 兼容旧 UI 的字段（P7 换 React 时删）
         hull: ship?.hull ?? "hull.falcon",
         weapon: d?.weapons?.[0]?.id ?? "laser",
-        count: b.count,
-        alive: countMembers(this.units, b.id),
-        cost: entryCost(ship, b.count),
+        count: b.loose ? alive : entriesCount(entries),
+        alive,
+        cost,
         hue: sq ? sq.hue : 200
       };
     });
@@ -363,7 +494,22 @@ export class GameCore {
       modules: Math.floor(this.build.modules),
       moduleCap: this.moduleCap,
       commandCap: this.build.commandCap,
-      commandUsed: commandsUsed(this.build, this.ships),
+      commandUsed: commandsUsed(this.build, this.ships, this.units),
+      // 散兵池：没有编制，UI 单独显示（哪几型、各多少艘）
+      pool: { faction: 0, size: poolSize, kinds: poolKinds },
+      // 编制模板库：UI 编辑它就会追溯改所有引用它的小队
+      templates: Object.values(this.squadTemplates).map(t => ({
+        id: t.id,
+        name: t.name,
+        desc: t.desc || "",
+        entries: t.entries.map(e => ({
+          ship: e.ship,
+          name: this.ships[e.ship]?.name ?? "?",
+          n: e.n
+        })),
+        formations: [...(t.formations || [])],
+        usedBy: this.build.squads.filter(b => b.template === t.id).length
+      })),
       shipRev: this.shipRev,
       squads,
       production: this.production.map(f => ({
@@ -405,7 +551,7 @@ export class GameCore {
           capacityUsed: s.derived?.capacityUsed ?? 0,
           buildTime: s.derived?.buildTime ?? 0,
           // 在役舰数：>0 表示这个方案被锁死（不能改、不能删）
-          inService: inService.get(s.id) || 0,
+          inService: inServiceMap.get(s.id) || 0,
           ok: !!s.derived?.ok,
           reasons: s.derived?.reasons ?? [],
           fit: { ...s.fit },
@@ -465,9 +611,16 @@ export class GameCore {
       // 生产
       case "setLineEfficiency": return this.cmdSetLineEfficiency(cmd);
       case "queueShip": return this.cmdQueueShip(cmd);
-      case "buildSquad": return this.cmdBuildSquad(cmd);
       case "cancelOrder": return this.cmdCancelOrder(cmd);
-      case "instantRefill": return this.cmdInstantRefill(cmd);
+      case "instantBuild": return this.cmdInstantBuild(cmd);
+
+      // 散兵池
+      case "absorb": return this.cmdAbsorb(cmd);
+      case "disband": return this.cmdDisband(cmd);
+
+      // 编制模板 / 阵型
+      case "editSquadTemplate": return this.cmdEditSquadTemplate(cmd);
+      case "setFormation": return this.cmdSetFormation(cmd);
 
       default:
         return reject([`未知命令 ${cmd.type}`], "unknown");
@@ -476,13 +629,17 @@ export class GameCore {
 
   /**
    * 编队变更：换舰船方案 / 改编制。
-   * 校验 → 差量应用（保留存活单位的位置与战损比）→ 扣模组。
+   *
+   * 引用了编制模板的小队不接受逐队改编制 —— 改模板才对（那是"追溯"的唯一入口）。
+   * 所以这条命令现在只有一种效果：**把这支小队从模板上摘下来**，变成
+   * 一支自己拿一份编制的「无编制小队」。代价是它以后不能吸收散兵。
    */
   applyLoadout(cmd) {
     const id = cmd.squadId;
     const sq = this.squads[id];
     const b = this.build.squads[id];
     if (!sq || !b) return reject(["没有这支小队"]);
+    if (b.loose) return reject(["散兵池没有编制，不能改编制"]);
 
     const nextShipId = cmd.ship ?? b.ship;
     const nextCount = cmd.count ?? b.count;
@@ -501,8 +658,10 @@ export class GameCore {
     if (nextCount > MAX_PER_SQUAD) reasons.push(`单队编制上限 ${MAX_PER_SQUAD} 艘`);
 
     if (nextShip) {
-      const deltaCost = entryCost(nextShip, nextCount) - entryCost(this.ships[b.ship], b.count);
-      const usedAfter = commandsUsed(this.build, this.ships) + deltaCost;
+      // 解散状态的队伍本来就没占指挥值（commandsUsed 跳过它），按 0 起算
+      const prevCost = b.active === false ? 0 : entriesCost(squadEntries(b), this.ships);
+      const usedAfter = commandsUsed(this.build, this.ships, this.units)
+        - prevCost + entryCost(nextShip, nextCount);
       if (usedAfter > this.build.commandCap) {
         reasons.push(
           `超出指挥值：需 ${usedAfter}，上限 ${this.build.commandCap}（超 ${usedAfter - this.build.commandCap}）`
@@ -510,7 +669,7 @@ export class GameCore {
       }
     }
 
-    const grow = Math.max(0, nextCount - b.count);
+    const grow = Math.max(0, nextCount - entriesCount(squadEntries(b)));
     if (grow > 0 && grow * MODULES_PER_SHIP > this.build.modules) {
       reasons.push(`预制模组不足：需 ${grow * MODULES_PER_SHIP}，剩 ${this.build.modules}`);
     }
@@ -518,8 +677,14 @@ export class GameCore {
     if (reasons.length) return reject(reasons);
 
     // ---- 应用（差量，不重建全场） ----
+    b.template = null;                 // 脱离模板：从此自己拿一份编制
+    b.entries = [{ ship: nextShipId, n: nextCount }];
     b.ship = nextShipId;
     b.count = nextCount;
+    b.active = true;
+    if (!b.formations || !b.formations.length) {
+      b.formations = b.form ? [b.form] : [];
+    }
 
     sq.p.members = nextCount;
     applyShipToSquadParams(sq, nextShip);
@@ -532,9 +697,127 @@ export class GameCore {
 
     // 血量为比例缩放，新单位补 initCombat —— 所以改配置不会让整队满血复活
     applyCombatParams(this.units, this.squads, id);
+    for (const u of this.units) if (u.squad === id) u.command = rt.command || 0;
 
     this.build.modules -= grow * MODULES_PER_SHIP;
 
+    return { ok: true };
+  }
+
+  // ------------------------------------------------------------------
+  // 编制模板（改模板 = 追溯改所有引用它的小队）
+  // ------------------------------------------------------------------
+
+  /**
+   * 改一个编制模板，并把结果追到所有引用它的小队：
+   *   - 编制里多出来的船 → 退回散兵池（"剔除不符合编制的舰船"）
+   *   - 阵型重置成模板的默认阵型（formations[0]）
+   *   - 缺口不自动补：要船就按「吸收散兵」去池子里拿
+   */
+  cmdEditSquadTemplate(cmd) {
+    const tplId = cmd.templateId;
+    const tpl = this.squadTemplates[tplId];
+    if (!tpl) return reject([`没有这个编制模板 ${tplId}`]);
+
+    const nextEntries = cmd.entries ? cloneEntries(cmd.entries) : cloneEntries(tpl.entries);
+    const nextForms = cmd.formations ? [...cmd.formations] : [...tpl.formations];
+
+    if (nextForms.length > MAX_FORMATION_SLOTS) {
+      return reject([`一个编制最多挂 ${MAX_FORMATION_SLOTS} 个阵型`]);
+    }
+    for (const f of nextForms) {
+      if (!FORMATIONS[f]) return reject([`未知阵型 ${f}`]);
+    }
+    for (const e of nextEntries) {
+      if (!this.ships[e.ship]) return reject([`未知舰船方案 ${e.ship}`]);
+      if (!Number.isInteger(e.n) || e.n < 0) return reject([`${e.ship} 的数量必须是 0 以上的整数`]);
+    }
+    const total = entriesCount(nextEntries);
+    if (total > MAX_PER_SQUAD) return reject([`单队编制上限 ${MAX_PER_SQUAD} 艘`]);
+
+    // 指挥值：算上"改完之后"的编制
+    const used = commandsUsed(this.build, this.ships, this.units);
+    let delta = 0;
+    for (const b of this.build.squads) {
+      if (b.template !== tplId || b.active === false) continue;
+      delta += entriesCost(nextEntries, this.ships) - entriesCost(squadEntries(b), this.ships);
+    }
+    if (used + delta > this.build.commandCap) {
+      return reject([
+        `超出指挥值：改完需 ${used + delta}，上限 ${this.build.commandCap}（超 ${used + delta - this.build.commandCap}）`
+      ]);
+    }
+
+    // ---- 写回模板（这只是"库"；真正的影响在下面逐个追下去） ----
+    tpl.entries = nextEntries;
+    tpl.formations = nextForms;
+
+    let touched = 0, ejected = 0;
+    for (const b of this.build.squads) {
+      if (b.template !== tplId) continue;
+      touched++;
+      ejected += this.applySquadTemplate(b, nextEntries, nextForms);
+    }
+
+    return { ok: true, touched, ejected };
+  }
+
+  /**
+   * 把一份编制套到一支小队上，并剔除多出来的船。
+   * @returns 退回散兵池的舰数
+   */
+  applySquadTemplate(b, entries, forms) {
+    const poolId = this.poolOf(b.faction);
+    const oldEntries = squadEntries(b);
+    let ejected = 0;
+
+    // 每种型号：现在的船比新编制多出来的部分，退回池子
+    for (const e of oldEntries) {
+      const sig = this.sigOf(e.ship);
+      if (!sig) continue;
+      const want = entries.find(x => x.ship === e.ship)?.n ?? 0;
+      // 用「签名」认船：编制里同型号可能被拆成两条，所以按签名归并
+      const have = countBySignature(this.units, b.id, sig);
+      let excess = have - want;
+      if (excess <= 0) continue;
+
+      for (let i = this.units.length - 1; i >= 0 && excess > 0; i--) {
+        const u = this.units[i];
+        if (u.squad !== b.id) continue;
+        if (unitSignature(u) !== sig) continue;
+        u.squad = poolId;
+        excess--;
+        ejected++;
+      }
+    }
+
+    b.entries = cloneEntries(entries);
+    b.formations = [...forms];
+    b.ship = b.entries[0]?.ship ?? b.ship;
+    b.count = entriesCount(b.entries);
+
+    // 阵型重置为模板默认（没有阵型就保持原样）
+    const formId = forms[0] || null;
+    if (formId) {
+      b.form = formId;
+      applyFormation(this.squads[b.id].p, formId);
+    }
+
+    if (poolId >= 0) this.syncPoolCount(poolId);
+    return ejected;
+  }
+
+  /** 切换一支小队的阵型（瞬间生效，只改那 12 个参数） */
+  cmdSetFormation(cmd) {
+    const b = this.build.squads[cmd.squadId];
+    if (!b) return reject(["没有这支小队"]);
+    if (b.loose) return reject(["散兵池没有阵型"]);
+    if (!FORMATIONS[cmd.form]) return reject([`未知阵型 ${cmd.form}`]);
+    if (!(b.formations || []).includes(cmd.form)) {
+      return reject([`这支小队的编制没解锁阵型 ${cmd.form}`]);
+    }
+    b.form = cmd.form;
+    applyFormation(this.squads[b.id].p, cmd.form);
     return { ok: true };
   }
 
@@ -617,8 +900,8 @@ export class GameCore {
     const s = this.ships[cmd.shipId];
     if (!s) return reject([`没有这艘舰船 ${cmd.shipId}`]);
 
-    // 锁定②：还有活的舰船在役 → 不能改装配
-    // （改了会顺着 syncShipUsage 把所有在役舰船的属性一起改掉，所以必须在入口拦住）
+    // 锁定：还有活的舰船在役 → 不能改装配
+    // （强行改会顺着 syncShipUsage 把这些船的属性一起换掉，所以必须在入口拦住）
     const alive = this.shipInService(cmd.shipId);
     if (alive > 0) {
       return reject([
@@ -626,53 +909,58 @@ export class GameCore {
       ]);
     }
 
+    const oldSig = this.sigOf(cmd.shipId);
+
     // 装配改了但校验不过 —— 事务式拒绝，库里保持原样
     const r = shipLib.setShipFit(this.ships, cmd.shipId, cmd.slotId, cmd.itemId ?? null, this.time);
     if (!r.ok) return reject(r.reasons);
 
-    // 理论上这里已经没有任何在役舰船了（0 艘），同步只是个兜底：
-    // 还有引用它的小队（存活 0）也一并刷成新规格。
-    this.syncShipUsage(cmd.shipId);
-    this.shipRev++;
+    this.shipRev++;                    // 先让编译缓存失效，再同步
+    // 在役为 0 时这只是兜底：万一还有引用它的编制（只是暂时没船）
+    this.syncShipUsage(cmd.shipId, oldSig);
     return { ok: true };
   }
 
   /**
-   * 把某方案的编译结果刷进所有在用的小队和它们的舰船。
+   * 把某方案的编译结果刷进引用它的编制里、**同型号**的那些船。
    *
-   * 注意：这个函数**真的会改掉已经在场的船**。这是有意的——
-   * 我们靠命令层的「在役就禁止改方案」来保证它不会被玩家触发
-   * （见 cmdSetShipFit / cmdDeleteShip），而不是靠给每条船留版本快照。
+   * 这是「强行改方案」的路径：改完之后那些船的属性会变。正常流程靠
+   * 命令层的「在役就禁止改」把它挡住（见 cmdSetShipFit / cmdDeleteShip）。
+   * 按旧签名挑船，所以混编小队里别的型号不会被误改。
    */
-  syncShipUsage(shipId) {
-    const tpl = this.ships[shipId];
-    if (!tpl) return;
+  syncShipUsage(shipId, oldSig) {
+    const rt = this.runtimeOf(shipId);
+    if (!rt || !oldSig) return 0;
+
+    let n = 0;
     for (const b of this.build.squads) {
-      if (b.ship !== shipId) continue;
-      applyShipToSquadParams(this.squads[b.id], tpl);
-      applyCombatParams(this.units, this.squads, b.id);
+      if (b.loose) continue;                     // 池子是混装的，不整队刷
+      if (!squadEntries(b).some(e => e.ship === shipId)) continue;
+      for (const u of this.units) {
+        if (u.squad !== b.id) continue;
+        if (unitSignature(u) !== oldSig) continue;
+        retrofitUnit(u, rt);
+        n++;
+      }
+      if (b.ship === shipId) applyShipToSquadParams(this.squads[b.id], this.ships[shipId]);
     }
+    return n;
   }
 
   // ------------------------------------------------------------------
   // 生产命令
   // ------------------------------------------------------------------
 
-  /** 某小队所属阵营的生产设施 */
-  facilityOf(squadId) {
-    const b = this.build.squads[squadId];
-    if (!b) return null;
-    return this.production.find(f => f.faction === b.faction) || null;
+  /** 某阵营的生产设施 */
+  facilityOfFaction(faction) {
+    return this.production.find(f => f.faction === faction) || null;
   }
 
-  /** 某小队已经排了多少艘还没造出来 */
-  queuedForSquad(squadId) {
+  /** 某个阵营排了多少艘还没造出来 */
+  queuedForFaction(faction) {
     let n = 0;
-    for (const fac of this.production) {
-      for (const line of fac.lines) {
-        for (const job of line.queue) if (job.squadId === squadId) n++;
-      }
-    }
+    const fac = this.facilityOfFaction(faction);
+    if (fac) for (const line of fac.lines) n += line.queue.length;
     return n;
   }
 
@@ -695,49 +983,48 @@ export class GameCore {
     return { ok: true };
   }
 
-  /** 排一艘船进队列（不改编制，只补实际数量） */
+  /**
+   * 排队建造：造出来的船进散兵池。
+   *
+   * 订单挂在「阵营 + 方案」上，不挂在某个小队上 —— 编制要船的时候是靠
+   * 吸收散兵去池子里拿，而不是提前把产量预定给某支队。
+   *
+   * 也接受 { squadId }：等价于「这个阵营、这个方案」，方便 UI 从选中的小队直接下单。
+   */
   cmdQueueShip(cmd) {
-    const b = this.build.squads[cmd.squadId];
-    if (!b) return reject(["没有这支小队"]);
     const count = cmd.count ?? 1;
     if (!Number.isInteger(count) || count < 1) return reject(["数量必须是 ≥1 的整数"]);
 
-    const tpl = this.ships[b.ship];
-    if (!tpl || !tpl.derived.ok) return reject([`方案 ${b.ship} 当前不可建造`]);
+    let faction = cmd.faction;
+    let shipId = cmd.shipId;
 
-    const fac = this.facilityOf(cmd.squadId);
-    if (!fac) return reject(["这支小队没有可用的生产设施"]);
-
-    const alive = countMembers(this.units, b.id);
-    const pending = this.queuedForSquad(b.id);
-    if (alive + pending + count > MAX_PER_SQUAD) {
-      return reject([
-        `超出单队上限：现有 ${alive} + 在造 ${pending} + 新排 ${count} > ${MAX_PER_SQUAD}`
-      ]);
+    if (cmd.squadId !== undefined) {
+      const b = this.build.squads[cmd.squadId];
+      if (!b) return reject(["没有这支小队"]);
+      if (b.loose) return reject(["散兵池没有编制，不能给池子下单"]);
+      faction = b.faction;
+      shipId = shipId ?? b.ship;
     }
+    if (faction === undefined || faction === null) return reject(["没有指定阵营"]);
+    if (!shipId) return reject(["没有指定舰船方案"]);
+
+    const tpl = this.ships[shipId];
+    if (!tpl || !tpl.derived.ok) return reject([`方案 ${shipId} 当前不可建造`]);
+
+    const fac = this.facilityOfFaction(faction);
+    if (!fac) return reject([`阵营 ${faction} 没有生产设施`]);
 
     const buildTime = tpl.derived.buildTime;
     for (let i = 0; i < count; i++) {
       enqueue(fac, {
         id: "job" + (this.jobSeq++),
-        squadId: b.id,
-        shipId: b.ship,
+        faction,
+        shipId,
         buildTime,
         progress: 0
       });
     }
-    return { ok: true, queued: pending + count };
-  }
-
-  /** 一键建造 / 补充：按缺编数一次性排队 */
-  cmdBuildSquad(cmd) {
-    const b = this.build.squads[cmd.squadId];
-    if (!b) return reject(["没有这支小队"]);
-    const alive = countMembers(this.units, b.id);
-    const pending = this.queuedForSquad(b.id);
-    const missing = b.count - alive - pending;
-    if (missing <= 0) return reject([pending > 0 ? "这支小队已经在补了" : "这支小队已经满编"]);
-    return this.cmdQueueShip({ squadId: cmd.squadId, count: missing });
+    return { ok: true, queued: this.queuedForFaction(faction) };
   }
 
   cmdCancelOrder(cmd) {
@@ -748,26 +1035,41 @@ export class GameCore {
     return reject([`没有这条订单 ${cmd.jobId}`]);
   }
 
-  /** 用预制模组瞬间补船 */
-  cmdInstantRefill(cmd) {
-    const b = this.build.squads[cmd.squadId];
-    if (!b) return reject(["没有这支小队"]);
-    const alive = countMembers(this.units, b.id);
-    const missing = b.count - alive;
-    if (missing <= 0) return reject(["这支小队已经满编"]);
+  /**
+   * 快速建造：花预制模组，一次性把船造出来，进散兵池。
+   * 和排队建造的区别只有"要不要等"，出口是同一个。
+   */
+  cmdInstantBuild(cmd) {
+    const count = cmd.count ?? 1;
+    if (!Number.isInteger(count) || count < 1) return reject(["数量必须是 ≥1 的整数"]);
 
-    const count = Math.min(cmd.count ?? 1, missing);
+    let faction = cmd.faction;
+    let shipId = cmd.shipId;
+
+    if (cmd.squadId !== undefined) {
+      const b = this.build.squads[cmd.squadId];
+      if (!b) return reject(["没有这支小队"]);
+      if (b.loose) return reject(["散兵池没有编制，不能给池子下单"]);
+      faction = b.faction;
+      shipId = shipId ?? b.ship;
+    }
+    if (faction === undefined || faction === null) return reject(["没有指定阵营"]);
+    if (!shipId) return reject(["没有指定舰船方案"]);
+
+    const rt = this.runtimeOf(shipId);
+    if (!rt) return reject([`方案 ${shipId} 当前不可建造`]);
+
     if (count > this.build.modules) {
       return reject([`预制模组不足：需 ${count}，剩 ${Math.floor(this.build.modules)}`]);
     }
 
+    const poolId = this.poolOf(faction);
+    if (poolId < 0) return reject([`阵营 ${faction} 没有散兵池`]);
+
     this.build.modules -= count;
 
-    const rt = this.runtimeOf(b.ship);
-    if (!rt) return reject([`方案 ${b.ship} 当前不可建造`]);
-
-    const sq = this.squads[b.id];
-    const cx = sq.cn ? sq.cx : this.width * 0.5;
+    const sq = this.squads[poolId];
+    const cx = sq.cn ? sq.cx : this.width * (faction === 0 ? 0.26 : 0.74);
     const cy = sq.cn ? sq.cy : this.height * 0.5;
 
     // 先摆位置、再初始化，和旧版的随机数消耗顺序一致
@@ -776,7 +1078,7 @@ export class GameCore {
       const a = rand() * Math.PI * 2;
       const r = Math.sqrt(rand()) * 55;
       const u = {
-        squad: b.id,
+        squad: poolId,
         x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r,
         vx: 0, vy: 0, alpha: 0, cAll: 0
       };
@@ -786,7 +1088,96 @@ export class GameCore {
     for (const u of fresh) initUnit(u, rt);
 
     computeCenters(this.units, this.squads);
+    this.syncPoolCount(poolId);
     return { ok: true, built: count };
+  }
+
+  /**
+   * 吸收散兵：从池子里挑「同型号」的船，补进这支小队的编制。
+   *
+   * 编制可能有多种型号，所以按 entries 逐项补：每型补到它自己的缺口为止。
+   * 同型怎么判：属性签名相同（见 defense-system.unitSignature）——
+   * 舰船身上没有方案引用，也不需要，属性一样就真的是一样。
+   *
+   * 无编制小队（template === null）没有编制可补，也不能吸收。
+   */
+  cmdAbsorb(cmd) {
+    const b = this.build.squads[cmd.squadId];
+    if (!b) return reject(["没有这支小队"]);
+    if (b.loose) return reject(["散兵池本身不能吸收散兵"]);
+    if (!b.template) return reject(["无编制小队没有编制，不能吸收散兵"]);
+
+    const entries = squadEntries(b);
+    if (!entries.length) return reject(["这支小队没有编制"]);
+
+    const poolId = this.poolOf(b.faction);
+    if (poolId < 0) return reject(["这个阵营没有散兵池"]);
+
+    // 每型：编制 n - 场上同签名舰数 = 缺口
+    const plan = [];
+    let gapAll = 0;
+    for (const e of entries) {
+      const sig = this.sigOf(e.ship);
+      if (!sig) continue;
+      const gap = Math.max(0, (e.n | 0) - countBySignature(this.units, b.id, sig));
+      if (gap > 0) { plan.push({ ship: e.ship, sig, gap }); gapAll += gap; }
+    }
+    if (!plan.length) return reject(["这支小队已经满编"]);
+
+    const want = Math.min(gapAll, cmd.count ?? gapAll);
+    let left = want;
+    let moved = 0;
+
+    for (const p of plan) {
+      if (left <= 0) break;
+      const take = Math.min(p.gap, left);
+      let got = 0;
+      for (const u of this.units) {
+        if (got >= take) break;
+        if (u.squad !== poolId) continue;
+        if (unitSignature(u) !== p.sig) continue;
+        u.squad = b.id;
+        got++; moved++;
+      }
+      left -= got;
+    }
+
+    if (!moved) {
+      return reject([
+        `散兵池里没有可补的型号（池里 ${countMembers(this.units, poolId)} 艘）`
+      ]);
+    }
+
+    b.active = true;                  // 解散过的队伍，吸收回来就等于重新组建
+    computeCenters(this.units, this.squads);
+    this.syncPoolCount(poolId);
+    return { ok: true, moved };
+  }
+
+  /**
+   * 解散小队：舰船全部退回散兵池，编制保留（以后可以再吸收回来）。
+   * 指挥值不归还——船还在，只是没编队。
+   */
+  cmdDisband(cmd) {
+    const b = this.build.squads[cmd.squadId];
+    if (!b) return reject(["没有这支小队"]);
+    if (b.loose) return reject(["散兵池不能解散"]);
+    if (b.active === false) return reject(["这支小队已经解散"]);
+
+    const poolId = this.poolOf(b.faction);
+    if (poolId < 0) return reject(["这个阵营没有散兵池"]);
+
+    let moved = 0;
+    for (const u of this.units) {
+      if (u.squad !== b.id) continue;
+      u.squad = poolId;
+      moved++;
+    }
+    b.active = false;
+
+    computeCenters(this.units, this.squads);
+    this.syncPoolCount(poolId);
+    return { ok: true, moved };
   }
 
   // ------------------------------------------------------------------
@@ -844,4 +1235,13 @@ export class GameCore {
 
 function reject(reasons, code) {
   return { ok: false, reasons, code: code || "rejected" };
+}
+
+/** 某小队里签名匹配的舰数（舰船没有方案引用，型号就是它的属性） */
+function countBySignature(units, squadId, sig) {
+  let n = 0;
+  for (const u of units) {
+    if (u.squad === squadId && unitSignature(u) === sig) n++;
+  }
+  return n;
 }
