@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>依赖冒烟 · React + Pixi + Zustand</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #07090d; color: #c9d6e3;
+    font: 13px/1.5 "Microsoft YaHei", system-ui, sans-serif; }
+  #wrap { position: fixed; inset: 0; display: flex; }
+  #pixi { flex: 1; position: relative; }
+  #react { width: 300px; padding: 14px; border-left: 1px solid rgba(80,120,160,.25); }
+  button { font: inherit; padding: 4px 10px; border-radius: 5px; cursor: pointer;
+    background: rgba(60,90,120,.35); color: #cfe0f0; border: 1px solid rgba(90,130,170,.4); }
+  .row { display: flex; justify-content: space-between; padding: 3px 0; color: #8fa3b7; }
+  .row b { color: #dbe7f3; font-variant-numeric: tabular-nums; }
+  h3 { font-size: 11px; letter-spacing: .08em; color: #6f869c; text-transform: uppercase; }
+</style>
+</head>
+<body>
+  <div id="wrap">
+    <div id="pixi"></div>
+    <div id="react"></div>
+  </div>
+  <script type="module" src="./src/smoke/main.jsx"></script>
+</body>
+</html>

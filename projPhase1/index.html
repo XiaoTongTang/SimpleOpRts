@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SimpleOpRTS · Phase 1 · 架构骨架</title>
+<link rel="stylesheet" href="./src/ui/style.css">
+</head>
+<body>
+  <!-- 世界层：渲染器独占（将来换 Pixi 时只换这一层的实现） -->
+  <canvas id="c"></canvas>
+
+  <!-- UI 层：现在用 DOM 搭，将来换成 React 挂载到同一个 #ui-root -->
+  <div id="ui-root"></div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

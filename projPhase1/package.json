@@ -1,0 +1,24 @@
+{
+  "name": "simpleoprts-phase1",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "SimpleOpRTS 阶段一：GameCore / 渲染层 / store / UI 的分层骨架",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node serve.mjs 8100",
+    "test": "node test/core.smoke.mjs && node test/templates.smoke.mjs"
+  },
+  "dependencies": {
+    "pixi.js": "^8.22.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "zustand": "^5.1.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.2.1",
+    "vite": "^8.3.6"
+  }
+}

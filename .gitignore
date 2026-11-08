@@ -1,0 +1,76 @@
+# =============================================================
+# SimpleOpRTSProj
+# 只忽略「机器生成 / 本机专属」的东西；一切设计文档、原型源码、
+# 依赖锁定文件都必须进版本库。
+#
+# 检查是否误伤：git status --ignored
+# =============================================================
+
+# ---------- Node / pnpm ----------
+# 依赖目录：任何机器上 pnpm install 都能重建成一模一样的（有 lock 文件）
+node_modules/
+.pnpm-store/
+.pnpm-debug.log*
+
+# 构建产物
+dist/
+dist-ssr/
+.vite/
+*.tsbuildinfo
+
+# 构建/运行期临时目录（projPhase1 把 TEMP 指到这里，存放 esbuild/node 编译缓存）
+.tmp/
+.cache/
+
+# 日志
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# ---------- 环境变量 / 本机配置 ----------
+.env
+.env.*
+!.env.example
+*.local
+
+# ---------- Python（将来若把 PixelTools 挪进来）----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.uv/
+uv.lock.bak
+
+# ---------- Obsidian ----------
+# workspace.json 记录的是「本机当前打开了哪些面板、窗口多大」，
+# 每个人都不同，进版本库只会制造无意义冲突。
+# 注意：它目前已被 git 跟踪，光写 ignore 不生效，需要执行一次：
+#   git rm --cached .obsidian/workspace.json
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/cache
+.trash/
+
+# ---------- 编辑器 / 操作系统 ----------
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ---------- 测试 / 覆盖率 ----------
+coverage/
+.nyc_output/
+*.snap.tmp
+
+# ---------- 一次性调试残留 ----------
+# 从 asar 里提取东西时用过，别再提交进来
+_asar_out*/
+_asar_out2/
+_asar_dump.mjs
