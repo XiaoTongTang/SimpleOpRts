@@ -107,33 +107,48 @@ console.log("\n[6] 删除");
 console.log("\n[7] 改装配：事务式");
 {
   const core = mk();
-  const before = JSON.stringify(core.ships["ship.std_falcon"].fit);
+  // 在役的方案是锁死的，所以先复制一份没在役的副本来改
+  const cp = core.command({ type: "duplicateShip", shipId: "ship.std_falcon" });
+  const id = cp.id;
+  const before = JSON.stringify(core.ships[id].fit);
 
-  const bad = core.command({ type: "setShipFit", shipId: "ship.std_falcon", slotId: "w1", itemId: "railgun" });
+  const bad = core.command({ type: "setShipFit", shipId: id, slotId: "w1", itemId: "railgun" });
   ok("装不下被拒（M 进 S 槽）", bad.ok === false, JSON.stringify(bad));
-  ok("被拒后库里没变", JSON.stringify(core.ships["ship.std_falcon"].fit) === before);
+  ok("被拒后库里没变", JSON.stringify(core.ships[id].fit) === before);
 
-  const good = core.command({ type: "setShipFit", shipId: "ship.std_falcon", slotId: "w1", itemId: "missile" });
+  const good = core.command({ type: "setShipFit", shipId: id, slotId: "w1", itemId: "missile" });
   ok("合法装配通过", good.ok === true, JSON.stringify(good));
-  eq("w1 变成导弹", core.ships["ship.std_falcon"].fit.w1, "missile");
-  eq("承载 5+3", core.ships["ship.std_falcon"].derived.capacityUsed, 8);
+  eq("w1 变成导弹", core.ships[id].fit.w1, "missile");
+  eq("承载 5+3", core.ships[id].derived.capacityUsed, 8);
 
   const over = core.command({
-    type: "setShipFit", shipId: "ship.std_falcon", slotId: "p1", itemId: "plugin.charger_l"
+    type: "setShipFit", shipId: id, slotId: "p1", itemId: "plugin.charger_l"
   });
   ok("超承载被拒", over.ok === false, JSON.stringify(over));
   ok("理由给出具体数字", /超出承载量/.test((over.reasons || []).join("")),
     JSON.stringify(over.reasons));
 }
 
-console.log("\n[8] 改装配同步到在用的小队");
+console.log("\n[8] 在役就锁：不能改已造出舰船的方案");
 {
   const core = mk();
-  eq("小队的第二个武器是激光", core.squads[0].p.weapons[1], "laser");
-  core.command({ type: "setShipFit", shipId: "ship.std_falcon", slotId: "w2", itemId: "missile" });
-  eq("小队立刻换成导弹", core.squads[0].p.weapons[1], "missile");
-  ok("战场单位也换了",
-    core.units.find(u => u.squad === 0 && u.hp > 0).weapons[1].id === "missile");
+  const inService = core.shipInService("ship.std_falcon");
+  ok("初始就有在役舰船", inService > 0, String(inService));
+
+  const r = core.command({ type: "setShipFit", shipId: "ship.std_falcon", slotId: "w2", itemId: "missile" });
+  ok("改在役方案被拒", r.ok === false, JSON.stringify(r));
+  ok("理由说明有在役舰船", /在役/.test((r.reasons || []).join("")), JSON.stringify(r.reasons));
+  eq("库里没变", core.ships["ship.std_falcon"].fit.w2, "laser");
+  ok("战场单位也没变", core.units.find(u => u.squad === 0).weapons[1].id === "laser");
+
+  // 拆光之后解锁：把引用它的几支小队都改成 0
+  for (const b of core.build.squads) {
+    if (b.ship === "ship.std_falcon") core.command({ type: "setLoadout", squadId: b.id, count: 0 });
+  }
+  eq("在役归零", core.shipInService("ship.std_falcon"), 0);
+  const r2 = core.command({ type: "setShipFit", shipId: "ship.std_falcon", slotId: "w2", itemId: "missile" });
+  ok("归零后可以改", r2.ok === true, JSON.stringify(r2));
+  eq("w2 变成导弹", core.ships["ship.std_falcon"].fit.w2, "missile");
 }
 
 console.log("\n[9] 预览不写库");

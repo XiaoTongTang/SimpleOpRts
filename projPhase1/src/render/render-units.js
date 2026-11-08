@@ -48,14 +48,19 @@ export function drawUnits(ctx, units, squads) {
   }
 
   // 护盾环 + 支援模块标记 + 血条
-  // 支援标记按小队预计算一次：同一队里所有舰船的装配相同
-  const hasShieldAura = [];
+  // 支援标记按「每艘船自己的能力」判断：散兵队里可能混着多型舰船
+  const shieldAura = [];
   if (squads) {
     for (let i = 0; i < squads.length; i++) {
-      const list = squads[i]?.p?.abilities;
-      hasShieldAura[i] = !!list && list.some(a => a.resource === "shield");
+      const list = squads[i]?.p?.abilities;   // 旧单位没有 abilities 字段时的兜底
+      shieldAura[i] = !!list && list.some(a => a.resource === "shield");
     }
   }
+  const hasAura = u => {
+    const own = u.abilities;
+    if (own !== undefined) return own.some(a => a.resource === "shield");
+    return !!shieldAura[u.squad];
+  };
 
   for (const u of units) {
     if (u.base || u.tower) continue;
@@ -66,7 +71,7 @@ export function drawUnits(ctx, units, squads) {
       ctx.lineWidth = 1.2;
       ctx.stroke();
     }
-    if (hasShieldAura[u.squad]) {
+    if (hasAura(u)) {
       ctx.beginPath();
       ctx.arc(u.x, u.y + 8.5, 1.9, 0, Math.PI * 2);
       ctx.fillStyle = "rgba(255,210,110,.95)";

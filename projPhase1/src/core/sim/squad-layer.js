@@ -164,8 +164,11 @@ export function countMembers(units, id) {
 /**
  * 把某小队的兵力调整到 target（就地增删，不重建全场）
  * 新增单位落在该队重心附近；删除从数组尾部开始。
+ *
+ * @param initFn 可选，(unit) => void。所有新单位 push 完之后统一调用，
+ *               用来给它们装上所属方案的战斗属性（保持随机数的消耗顺序不变）。
  */
-export function resizeSquad(units, squads, id, target, W, H) {
+export function resizeSquad(units, squads, id, target, W, H, initFn = null) {
   const sq = squads[id];
   if (!sq) return;
   target = Math.max(0, Math.floor(target || 0));
@@ -175,16 +178,20 @@ export function resizeSquad(units, squads, id, target, W, H) {
   if (target > cur) {
     const cx = sq.cn ? sq.cx : W * (sq.faction === 0 ? 0.24 : 0.76);
     const cy = sq.cn ? sq.cy : H * 0.5;
+    const fresh = [];
     for (let k = cur; k < target; k++) {
       const a = rand() * Math.PI * 2;
       const r = Math.sqrt(rand()) * 55;
-      units.push({
+      const u = {
         x: cx + Math.cos(a) * r,
         y: cy + Math.sin(a) * r,
         vx: 0, vy: 0,
         squad: id, alpha: 0, cAll: 0
-      });
+      };
+      units.push(u);
+      fresh.push(u);
     }
+    if (initFn) for (const u of fresh) initFn(u);
   } else {
     let drop = cur - target;
     for (let i = units.length - 1; i >= 0 && drop > 0; i--) {

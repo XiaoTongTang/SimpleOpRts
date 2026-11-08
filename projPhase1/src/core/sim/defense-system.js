@@ -16,24 +16,52 @@
 import { DEFAULT_HIT_R } from "./spatial.js";
 import { rand } from "./rng.js";
 
-/** 初始化一个单位的战斗状态 */
-export function initCombat(u, sq) {
-  u.hp = sq.p.hp;
-  u.maxHp = sq.p.hp;
-  u.regen = sq.p.regen;
+/**
+ * 初始化一个单位的战斗状态（舰船身份版）
+ * -----------------------------------------------------------------
+ * rt 是「这一艘船自己的规格」——由它引用的舰船方案编译而来（compileShip）。
+ * 舰船一旦造出来，规格就固定在这艘船身上：改方案不影响已经在场的船，
+ * 所以要变强只能造新船、或者整队换装（那是玩家的显式操作）。
+ *
+ * @param u  { shipId, x, y, ... }
+ * @param rt { maxHp, regen, maxShield, shieldRegen, hitR, weapons, weaponSlots,
+ *             weapon, fireRate, abilities }
+ */
+export function initUnit(u, rt) {
+  u.maxHp = rt.maxHp;
+  u.hp = rt.maxHp;
+  u.regen = rt.regen || 0;
 
-  u.maxShieldBase = sq.p.maxShield || 0;
+  u.maxShieldBase = rt.maxShield || 0;
   u.shieldCap = u.maxShieldBase;
-  u.shieldRegen = sq.p.shieldRegen || 0;
+  u.shieldRegen = rt.shieldRegen || 0;
   u.shield = 0;
 
   // 多武器：每个槽位一套独立的冷却/连发状态
-  u.fireRate = sq.p.fireRate || 1;
-  u.weapons = buildWeaponStates(sq.p);
+  u.fireRate = rt.fireRate || 1;
+  u.weapons = buildWeaponStates(rt);
   u.weapon = u.weapons[0]?.id ?? "laser";      // 兼容别名，渲染/统计用
-  u.hitR = sq.p.hitR === undefined ? DEFAULT_HIT_R : sq.p.hitR;   // 受击半径
+  u.hitR = rt.hitR === undefined ? DEFAULT_HIT_R : rt.hitR;   // 受击半径
+
+  // 支援能力挂在「这一艘船」上，不再读小队
+  u.abilities = rt.abilities || [];
 
   u.fxCd = 0;                   // 支援特效节流
+}
+
+/** 把 sq.p（小队参数）当成一份运行时规格；只为旧路径保留 */
+function paramsAsRuntime(p) {
+  return {
+    maxHp: p.hp, regen: p.regen,
+    maxShield: p.maxShield || 0, shieldRegen: p.shieldRegen || 0,
+    hitR: p.hitR, weapons: p.weapons, weaponSlots: p.weaponSlots,
+    weapon: p.weapon, fireRate: p.fireRate, abilities: p.abilities || []
+  };
+}
+
+/** 初始化一个单位的战斗状态（小队参数版，旧接口） */
+export function initCombat(u, sq) {
+  initUnit(u, paramsAsRuntime(sq.p));
 }
 
 /**
@@ -135,6 +163,7 @@ export function applyCombatParams(units, squads, id) {
 
       u.weapon = sq.p.weapon || "laser";
       u.hitR = sq.p.hitR === undefined ? DEFAULT_HIT_R : sq.p.hitR;
+      if (sq.p.abilities !== undefined) u.abilities = sq.p.abilities;
 
       // 装配变了就重建武器槽状态；同一个槽位的冷却尽量保留，避免刷 DPS
       const ids = Array.isArray(sq.p.weapons) && sq.p.weapons.length

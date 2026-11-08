@@ -20,7 +20,7 @@ import {
 import { stepUnits } from "./sim/group-layer.js";
 import { Grid } from "./sim/spatial.js";
 import { stepWeapons } from "./sim/weapon-system.js";
-import { applyDamage, stepRegen, applyCombatParams } from "./sim/defense-system.js";
+import { applyDamage, stepRegen, applyCombatParams, initUnit } from "./sim/defense-system.js";
 import { stepSupport } from "./sim/support-system.js";
 import {
   createFacility, enqueue, stepFacility, cancelJob,
@@ -32,7 +32,7 @@ import {
   createBuild, entryCost, commandsUsed, applyShipToSquadParams
 } from "./state.js";
 import * as shipLib from "./data/ship-library.js";
-import { computeShip, setFit } from "./data/ship-template.js";
+import { computeShip, compileShip, setFit } from "./data/ship-template.js";
 import { getHull, HULL_TEMPLATES } from "./data/hull-templates.js";
 import { PLUGIN_TEMPLATES } from "./data/plugin-templates.js";
 import { WEAPONS } from "./sim/weapons.js";
@@ -93,6 +93,8 @@ export class GameCore {
     this.paused = false;
     this.winner = -1;
 
+    this._rtCache = null;          // 舰船方案的编译缓存（reset 时丢掉）
+
     this.spawnAll();
     return this;
   }
@@ -103,15 +105,65 @@ export class GameCore {
     this.grid = new Grid(this.width, this.height);
   }
 
+  // ------------------------------------------------------------------
+  // 单位战斗属性
+  // ------------------------------------------------------------------
+  //
+  // 舰船身上**不保留方案引用**，只存它自己在战斗里要用的那套属性
+  // （血量 / 护盾 / 武器槽 / 支援能力）。属性在造出来那一刻从所属小队的
+  // 方案编译一次，之后就不再和方案库有任何联系。
+  //
+  // 于是「改方案会不会追溯已经造好的船」这个问题只剩一个答案：
+  // 会（syncShipUsage 就是在干这件事）—— 但我们用「在役就禁止改方案」
+  // 从命令层把这条路堵死。不需要每条船留版本快照。
+
+  /** 某方案的运行时规格（编译结果缓存，方案库一变就失效） */
+  runtimeOf(shipId) {
+    const tpl = this.ships[shipId];
+    if (!tpl) return null;
+    if (!this._rtCache || this._rtCache.rev !== this.shipRev) {
+      this._rtCache = { rev: this.shipRev, map: new Map() };
+    }
+    let rt = this._rtCache.map.get(shipId);
+    if (!rt) {
+      rt = compileShip(tpl);
+      this._rtCache.map.set(shipId, rt);
+    }
+    return rt;
+  }
+
+  /** 造一艘船：属性直接写在这一艘身上，不带方案引用 */
+  makeUnit(squadId, rt, x, y) {
+    if (!rt) return null;
+    const u = { squad: squadId, x, y, vx: 0, vy: 0, alpha: 0, cAll: 0 };
+    initUnit(u, rt);
+    return u;
+  }
+
+  /**
+   * 某方案在战场上还有多少活的舰船。
+   * 按「引用这个方案的小队」统计——这就是方案锁定的判据。
+   */
+  shipInService(shipId) {
+    let n = 0;
+    for (const b of this.build.squads) {
+      if (b.ship !== shipId) continue;
+      n += countMembers(this.units, b.id);
+    }
+    return n;
+  }
+
   /** 按构筑状态生成全部单位 */
   spawnAll() {
     this.units.length = 0;
     const cols = [this.width * 0.26, this.width * 0.74];
 
+    // 第一遍：只摆位置。随机数的消耗顺序和以前完全一致，
+    // 免得「加属性层」这件事顺手把整局战斗的走向也改掉。
     for (const b of this.build.squads) {
       const sq = this.squads[b.id];
       sq.p.members = b.count;
-      // 小船队的所有参数都从舰船模板编译而来（血量/护盾/武器/能力/炮口）
+      // 小队默认参数仍然按当前方案编译（之后补充的新船沿用它）
       applyShipToSquadParams(sq, this.ships[b.ship]);
 
       const row = b.id % 4;
@@ -132,7 +184,15 @@ export class GameCore {
     }
 
     computeCenters(this.units, this.squads);
-    for (const b of this.build.squads) applyCombatParams(this.units, this.squads, b.id);
+
+    // 第二遍：把每个方案编译出来的属性写进属于它的那批船
+    for (const b of this.build.squads) {
+      const rt = this.runtimeOf(b.ship);
+      if (!rt) continue;
+      for (const u of this.units) {
+        if (u.squad === b.id) initUnit(u, rt);
+      }
+    }
   }
 
   // ------------------------------------------------------------------
@@ -206,14 +266,27 @@ export class GameCore {
     }
   }
 
-  /** 一艘船造好了：直接生成一个单位，不改编制设计值（那是指挥值已经付过的） */
+  /** 一艘船造好了：带着这艘船的方案身份出生（编制设计值不变，那是指挥值已经付过的） */
   completeJob(job) {
     const sq = this.squads[job.squadId];
     if (!sq) return;
     const alive = countMembers(this.units, job.squadId);
     if (alive >= MAX_PER_SQUAD) return;          // 已经到单队上限，这艘弃掉
-    resizeSquad(this.units, this.squads, job.squadId, alive + 1, this.width, this.height);
-    applyCombatParams(this.units, this.squads, job.squadId);
+
+    const b = this.build.squads[job.squadId];
+    const rt = this.runtimeOf(job.shipId || b?.ship);
+
+    // 落在小队重心附近（先取位置、后初始化，保持随机数消耗顺序与旧版一致）
+    const cx = sq.cn ? sq.cx : this.width * 0.5;
+    const cy = sq.cn ? sq.cy : this.height * 0.5;
+    const a = rand() * Math.PI * 2;
+    const r = Math.sqrt(rand()) * 55;
+
+    const u = this.makeUnit(job.squadId, rt, cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+    if (!u) return;
+
+    this.units.push(u);
+    computeCenters(this.units, this.squads);
   }
 
   stepFx(dt) {
@@ -251,6 +324,14 @@ export class GameCore {
    * 注意这里没有 units —— 每帧的单位数组永远不进 React。
    */
   snapshot() {
+    // 各方案的在役舰数（一次遍历：单位 → 它所属小队的方案）
+    const shipOfSquad = this.build.squads.map(b => b.ship);
+    const inService = new Map();
+    for (const u of this.units) {
+      const id = shipOfSquad[u.squad];
+      if (id) inService.set(id, (inService.get(id) || 0) + 1);
+    }
+
     const squads = this.build.squads.map(b => {
       const sq = this.squads[b.id];
       const ship = this.ships[b.ship];
@@ -323,6 +404,8 @@ export class GameCore {
           capacity: s.derived?.capacity ?? 0,
           capacityUsed: s.derived?.capacityUsed ?? 0,
           buildTime: s.derived?.buildTime ?? 0,
+          // 在役舰数：>0 表示这个方案被锁死（不能改、不能删）
+          inService: inService.get(s.id) || 0,
           ok: !!s.derived?.ok,
           reasons: s.derived?.reasons ?? [],
           fit: { ...s.fit },
@@ -441,7 +524,12 @@ export class GameCore {
     sq.p.members = nextCount;
     applyShipToSquadParams(sq, nextShip);
 
-    resizeSquad(this.units, this.squads, id, nextCount, this.width, this.height);
+    // 整队换装：这是玩家的显式操作，整队都换成新方案的属性。
+    // 新造的船在 push 完之后统一初始化（保持随机数顺序）。
+    const rt = this.runtimeOf(nextShipId);
+    resizeSquad(this.units, this.squads, id, nextCount, this.width, this.height,
+      u => initUnit(u, rt));
+
     // 血量为比例缩放，新单位补 initCombat —— 所以改配置不会让整队满血复活
     applyCombatParams(this.units, this.squads, id);
 
@@ -507,7 +595,16 @@ export class GameCore {
   cmdDeleteShip(cmd) {
     const id = cmd.shipId;
     if (!this.ships[id]) return reject([`没有这艘舰船 ${id}`]);
+
+    // 锁定①：还有活的舰船在役 → 不能删（属性都在它们身上，删了就成了孤儿）
     const used = this.build.squads.filter(s => s.ship === id);
+    const alive = this.shipInService(id);
+    if (alive > 0) {
+      return reject([
+        `还有 ${used.length} 支小队在用这个方案（${alive} 艘在役），拆光之前不能删除`
+      ]);
+    }
+
     if (used.length) {
       return reject([`还有 ${used.length} 支小队在用这个方案，先换掉再删`]);
     }
@@ -519,17 +616,34 @@ export class GameCore {
   cmdSetShipFit(cmd) {
     const s = this.ships[cmd.shipId];
     if (!s) return reject([`没有这艘舰船 ${cmd.shipId}`]);
+
+    // 锁定②：还有活的舰船在役 → 不能改装配
+    // （改了会顺着 syncShipUsage 把所有在役舰船的属性一起改掉，所以必须在入口拦住）
+    const alive = this.shipInService(cmd.shipId);
+    if (alive > 0) {
+      return reject([
+        `该方案还有 ${alive} 艘在役，改装配会直接改掉它们的属性；拆光或换掉之前不能改`
+      ]);
+    }
+
     // 装配改了但校验不过 —— 事务式拒绝，库里保持原样
     const r = shipLib.setShipFit(this.ships, cmd.shipId, cmd.slotId, cmd.itemId ?? null, this.time);
     if (!r.ok) return reject(r.reasons);
 
-    // 这条方案如果正被小队使用，立刻把新装配同步进战场（不重建全场）
+    // 理论上这里已经没有任何在役舰船了（0 艘），同步只是个兜底：
+    // 还有引用它的小队（存活 0）也一并刷成新规格。
     this.syncShipUsage(cmd.shipId);
     this.shipRev++;
     return { ok: true };
   }
 
-  /** 把某方案的编译结果刷进所有在用的小队 */
+  /**
+   * 把某方案的编译结果刷进所有在用的小队和它们的舰船。
+   *
+   * 注意：这个函数**真的会改掉已经在场的船**。这是有意的——
+   * 我们靠命令层的「在役就禁止改方案」来保证它不会被玩家触发
+   * （见 cmdSetShipFit / cmdDeleteShip），而不是靠给每条船留版本快照。
+   */
   syncShipUsage(shipId) {
     const tpl = this.ships[shipId];
     if (!tpl) return;
@@ -648,18 +762,29 @@ export class GameCore {
     }
 
     this.build.modules -= count;
+
+    const rt = this.runtimeOf(b.ship);
+    if (!rt) return reject([`方案 ${b.ship} 当前不可建造`]);
+
+    const sq = this.squads[b.id];
+    const cx = sq.cn ? sq.cx : this.width * 0.5;
+    const cy = sq.cn ? sq.cy : this.height * 0.5;
+
+    // 先摆位置、再初始化，和旧版的随机数消耗顺序一致
+    const fresh = [];
     for (let i = 0; i < count; i++) {
       const a = rand() * Math.PI * 2;
       const r = Math.sqrt(rand()) * 55;
-      const sq = this.squads[b.id];
-      const cx = sq.cn ? sq.cx : this.width * 0.5;
-      const cy = sq.cn ? sq.cy : this.height * 0.5;
-      this.units.push({
+      const u = {
+        squad: b.id,
         x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r,
-        vx: 0, vy: 0, squad: b.id, alpha: 0, cAll: 0
-      });
+        vx: 0, vy: 0, alpha: 0, cAll: 0
+      };
+      this.units.push(u);
+      fresh.push(u);
     }
-    applyCombatParams(this.units, this.squads, b.id);
+    for (const u of fresh) initUnit(u, rt);
+
     computeCenters(this.units, this.squads);
     return { ok: true, built: count };
   }

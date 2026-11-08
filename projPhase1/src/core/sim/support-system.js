@@ -24,7 +24,7 @@ export const FX_PERIOD = 0.4;
 
 /**
  * @param units   全部单位（会被就地修改 hp / shield）
- * @param squads  小队数组（取 faction 与 p.abilities）
+ * @param squads  小队数组（取 faction；abilities 现在优先读单位自己的）
  * @param grid    空间索引（可为 null，退回全量扫描）
  * @param dt      步长（秒）
  * @param fx      特效数组（可为 null）
@@ -49,7 +49,9 @@ export function stepSupport(units, squads, grid, dt, fx) {
     if (u.hp <= 0) continue;
 
     const sq = squads[u.squad];
-    const list = sq?.p?.abilities;
+    // 能力挂在「这一艘船」上（舰船身份版）。没有这个字段的旧单位/测试数据
+    // 退回小队参数，保持兼容。
+    const list = u.abilities !== undefined ? u.abilities : sq?.p?.abilities;
     if (!list || list.length === 0) continue;
 
     u.fxCd = (u.fxCd || 0) - dt;

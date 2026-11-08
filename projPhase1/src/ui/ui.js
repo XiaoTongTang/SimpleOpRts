@@ -204,15 +204,16 @@ export function mountUI({ store, bridge }) {
     // ---- 方案库列表 ----
     const ships = snap.shipList || [];
     const cur = ships.find(s => s.id === selectedShipId) || ships[0] || null;
-    const sigS = ships.map(s => `${s.id}:${s.capacityUsed}/${s.capacity}:${s.ok ? 1 : 0}`).join(",")
+    const sigS = ships.map(s => `${s.id}:${s.capacityUsed}/${s.capacity}:${s.ok ? 1 : 0}:${s.inService}`).join(",")
       + "|" + (cur?.id || "");
     if (sigS !== shipsSig) {
       shipsSig = sigS;
       shipsEl.innerHTML = ships.map(s => {
         const pct = s.capacity > 0 ? Math.min(100, s.capacityUsed / s.capacity * 100) : 0;
         return `
-          <div class="row ship${s.id === (cur?.id) ? " sel" : ""}${s.ok ? "" : " dead"}" data-ship="${s.id}">
-            <span class="k">${s.name}</span>
+          <div class="row ship${s.id === (cur?.id) ? " sel" : ""}${s.ok ? "" : " dead"}" data-ship="${s.id}"
+               title="${s.inService > 0 ? `在役 ${s.inService} 艘 · 已锁定` : "未建造 · 可改"}">
+            <span class="k">${s.inService > 0 ? "锁 · " : ""}${s.name}</span>
             <span class="v">${s.capacityUsed}<em>/${s.capacity}</em></span>
             <span class="c">${s.command}</span>
             <span class="bar${s.capacityUsed > s.capacity ? " over" : ""}"><i style="width:${pct}%"></i></span>
@@ -227,13 +228,14 @@ export function mountUI({ store, bridge }) {
     // ---- 装配编辑区 ----
     const sigF = cur
       ? [cur.id, cur.capacityUsed, cur.capacity, cur.ok ? 1 : 0,
-         JSON.stringify(cur.fit), (cur.reasons || []).join("|")].join("|")
+         JSON.stringify(cur.fit), (cur.reasons || []).join("|"), cur.inService].join("|")
       : "none";
     if (sigF !== fitSig) {
       fitSig = sigF;
       if (!cur) {
         fitEl.innerHTML = `<div class="line sub">没有可选方案</div>`;
       } else {
+        const locked = cur.inService > 0;
         const rows = cur.slots.map(slot => {
           const stored = cur.fit[slot.id] || "";
           const options = slot.kind === "weapon"
@@ -246,11 +248,12 @@ export function mountUI({ store, bridge }) {
           return `
             <div class="line">
               <label>${slot.id}${slot.size ? "·" + slot.size : ""}</label>
-              <select data-slot="${slot.id}">${opts}</select>
+              <select data-slot="${slot.id}" ${locked ? "disabled" : ""}>${opts}</select>
             </div>`;
         }).join("");
 
         fitEl.innerHTML = `
+          ${locked ? `<div class="line warnline">该方案有 ${cur.inService} 艘在役，已锁定：拆光之前不能改。用「复制」生成一份可改的副本。</div>` : ""}
           ${rows}
           <div class="line sub">
             <span>承载 <b>${cur.capacityUsed}/${cur.capacity}</b></span>
