@@ -7,6 +7,7 @@
 <style>
   /* ---- 中栏：整队舰船 ---- */
   .fleet {
+    flex: 1;
     padding: 16px 18px 24px;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(252px, 1fr));
@@ -172,47 +173,51 @@
   }
   .big4 .val small { font-size: 10px; color: var(--mute); margin-left: 3px; }
 
-  .entry {
-    display: grid;
-    grid-template-columns: 30px 1fr auto auto;
-    gap: 9px;
-    align-items: center;
-    padding: 8px 8px;
-    border-radius: 7px;
-    border: 1px solid var(--line-soft);
-    background: rgba(20,29,40,.45);
-  }
-  .entry + .entry { margin-top: 6px; }
-  .entry .nm { font-size: 12px; }
-  .entry .sub { font-size: 10.5px; color: var(--mute); margin-top: 2px; }
-  .entry .x {
-    width: 20px; height: 20px; padding: 0; line-height: 1;
-    border-radius: 4px; border: 1px solid rgba(200,80,60,.35);
-    background: rgba(140,40,30,.18); color: #ffb4ad; cursor: pointer;
-    font-size: 12px;
-  }
-  .entry .x:hover { background: rgba(180,60,45,.32); }
-  .entry .x[disabled] { opacity: .3; cursor: not-allowed; }
-
-  .addbar {
+  /* ---- 中栏底部：添加舰船（固定高度的底部面板） ---- */
+  .fleetbar {
     flex: none;
-    padding: 10px 12px;
+    height: 104px;
+    display: flex; align-items: center; gap: 18px;
+    padding: 0 18px;
     border-top: 1px solid var(--line-soft);
     background: rgba(8, 12, 18, .5);
   }
+  .fleetbar .left {
+    display: flex; flex-direction: column; gap: 7px;
+    min-width: 0;
+  }
+  .fleetbar .btn {
+    flex: none;
+    align-self: flex-start;
+    height: 36px; padding: 0 24px;
+    font-size: 13px; letter-spacing: .06em;
+  }
+  .fleetbar .hint {
+    font-size: 10.5px; color: var(--mute);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .fleetbar .summ {
+    margin-left: auto; flex: none;
+    text-align: right;
+    font-family: var(--mono); font-size: 11px; line-height: 1.85;
+    color: var(--mute);
+    font-variant-numeric: tabular-nums;
+  }
+  .fleetbar .summ b { color: var(--dim); font-weight: 500; }
+  .fleetbar .summ b.warn { color: var(--warn); }
 
   /* ---- 右栏：阵型编辑 ---- */
   .scroll.forms {
-    flex: none;
-    height: 196px;
+    flex: 1;
+    min-height: 0;
     padding: 8px 10px;
   }
   .formrow {
     display: grid;
-    grid-template-columns: 16px 1fr;
+    grid-template-columns: 16px 1fr auto;
     gap: 8px;
-    align-items: start;
-    padding: 5px 8px;
+    align-items: center;
+    padding: 3px 8px;
     margin-bottom: 4px;
     cursor: pointer;
     border: 2px solid transparent;
@@ -221,11 +226,31 @@
   .formrow:hover { background: rgba(70,100,130,.18); border-color: var(--px-edge-dim); }
   .formrow.sel { background: var(--px-face-sel); border-color: var(--px-hi); border-left-color: var(--px-hi); }
   .formrow .ck {
-    font-family: var(--mono); font-size: 11px; line-height: 17px;
+    font-family: var(--mono); font-size: 11px; line-height: 18px;
     color: var(--px-hi); text-align: center;
   }
-  .formrow .fn { font-size: 12px; }
-  .formrow .fd { font-size: 10.5px; color: var(--mute); margin-top: 2px; }
+  .formrow .fn { font-size: 12px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .formrow .ft { font-size: 9.5px; color: var(--mute); padding: 0 4px; border: 1px solid var(--px-edge-dim); }
+
+  /* ---- 右栏：保存条 ---- */
+  .savebar {
+    flex: none;
+    padding: 10px 12px;
+    border-top: 2px solid var(--px-edge-dim);
+    background: rgba(8, 12, 18, .5);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .savebar .state {
+    font-size: 10.5px; color: var(--mute);
+    font-family: var(--mono);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .savebar .state.dirty { color: #e8c14a; }
+  .savebar .btn {
+    width: 100%; height: 42px;
+    font-size: 13px; letter-spacing: .18em;
+  }
+  .savebar .btn:disabled { opacity: .4; cursor: not-allowed; }
 
   .warn-box {
     margin-top: 8px;
@@ -359,9 +384,8 @@
   .pick.sel { background: var(--px-face-sel); border-left-color: var(--px-hi); }
   .pick .art { border: 1px solid var(--px-edge-dim); background: #0b141c; }
 
-  .addbar { border-top: 2px solid var(--px-edge-dim); }
+  .fleetbar { border-top: 2px solid var(--px-edge-dim); }
   .big4 .cell { border-radius: 0; border: 2px solid var(--px-edge-dim); background: var(--px-face); }
-  .entry { border-radius: 0; border: 2px solid var(--px-edge-dim); background: var(--px-face); }
   .warn-box { border-radius: 0; }
   .fleet-empty { border-radius: 0; }
 </style>
@@ -393,6 +417,16 @@
     <div class="col center">
       <div class="panel-head">编队 <span class="n" id="fleet-n"></span></div>
       <div class="fleet" id="fleet"></div>
+      <div class="fleetbar">
+        <div class="left">
+          <button class="btn primary" id="add-open">＋ 添加舰船</button>
+          <span class="hint" id="fleet-hint">改动先落在草稿里，点右侧「保存编制」才生效</span>
+        </div>
+        <div class="summ">
+          <div><b id="fb-count">—</b> 舰 · <b id="fb-types">—</b> 型</div>
+          <div>人口 <b id="fb-cmd">—</b> / 900</div>
+        </div>
+      </div>
     </div>
 
     <!-- ===== 右：编制调整 ===== -->
@@ -411,18 +445,16 @@
         <div class="kv"><span>承载占满度</span><b id="s-fill">—</b></div>
       </div>
 
-      <div class="panel-head">引用方案 <span class="n">增删 + 数量</span></div>
-      <div class="scroll" style="padding:10px 12px" id="entries"></div>
-
-      <div class="addbar">
-        <button class="btn primary" id="add-open" style="width:100%;height:34px">＋ 添加舰船</button>
-      </div>
-
       <div class="panel-head">阵型编辑 <span class="n" id="form-n">0 个</span></div>
       <div class="scroll forms" id="forms"></div>
 
+      <div class="savebar">
+        <div class="state" id="save-state">已保存</div>
+        <button class="btn primary" id="btn-save" disabled>保存编制</button>
+      </div>
+
       <div class="foot">
-        改动即时重算上方合计；人口占用超 900 会标红
+        合计按草稿实时重算；人口占用超 900 会标红
       </div>
     </div>
   </div>
@@ -507,11 +539,28 @@ const FORMS = [
 
 const COMMAND_CAP = 900;
 
-/* ---------------- 状态 ---------------- */
-
+/* ---------------- 状态 ----------------
+   所有改动先落在 draft 上，点「保存编制」才写回 cur（模板本体）。 */
 let cur = TEMPLATES[0];
+let draft = cloneDraft(cur);
+let dirty = false;
 let picked = null;          // 选择面板里当前选中的舰船 id
 const el = id => document.getElementById(id);
+
+function cloneDraft(t) {
+  return {
+    entries: (t.entries || []).map(e => ({ ...e })),
+    forms: [...(t.forms || [])],
+  };
+}
+
+/* 改一次草稿：执行变更 → 标脏 → 重绘 */
+function edit(fn) {
+  fn(draft);
+  dirty = true;
+  renderAll();
+  markDirty(true);
+}
 
 /* ---------------- 计算 ---------------- */
 
@@ -566,7 +615,10 @@ function renderTemplates() {
   el('tpl-list').querySelectorAll('.row').forEach(r => {
     r.addEventListener('click', () => {
       cur = TEMPLATES.find(t => t.id === r.dataset.id);
+      draft = cloneDraft(cur);
+      dirty = false;
       renderAll();
+      markDirty(false);
     });
   });
 
@@ -615,16 +667,16 @@ function beginRename(tpl, rowEl) {
 }
 
 function renderFleet() {
-  const tot = totals(cur);
-  el('fleet-n').textContent = `${cur.name} · ${tot.count} 舰 · ${cur.entries.length} 型`;
+  const tot = totals(draft);
+  el('fleet-n').textContent = `${cur.name} · ${tot.count} 舰 · ${draft.entries.length} 型`;
   el('tpl-name').textContent = cur.name;
 
-  if (!cur.entries.length) {
-    el('fleet').innerHTML = `<div class="fleet-empty">这套编制还没有舰船，点右下「＋ 添加舰船」开始</div>`;
+  if (!draft.entries.length) {
+    el('fleet').innerHTML = `<div class="fleet-empty">这套编制还没有舰船，点下方「＋ 添加舰船」开始</div>`;
     return;
   }
 
-  el('fleet').innerHTML = cur.entries.map((e, i) => {
+  el('fleet').innerHTML = draft.entries.map((e, i) => {
     const s = SHIPS[e.ship];
     return `
       <div class="shipcard" data-i="${i}">
@@ -651,7 +703,7 @@ function renderFleet() {
             <button data-act="inc" data-i="${i}" title="增加 1 艘">＋</button>
           </div>
           <button class="cardx" data-act="del" data-i="${i}"
-                  ${cur.entries.length <= 1 ? 'disabled' : ''}
+                  ${draft.entries.length <= 1 ? 'disabled' : ''}
                   title="从编制中移除这一型">删除</button>
         </div>
       </div>`;
@@ -660,21 +712,21 @@ function renderFleet() {
   el('fleet').querySelectorAll('[data-act]').forEach(btn => {
     btn.addEventListener('click', () => {
       const i = Number(btn.dataset.i);
-      const e = cur.entries[i];
-      if (!e) return;
-      if (btn.dataset.act === 'inc') e.n++;
-      if (btn.dataset.act === 'dec') e.n = Math.max(1, e.n - 1);
-      if (btn.dataset.act === 'del') {
-        if (cur.entries.length <= 1) return;
-        cur.entries.splice(i, 1);
-      }
-      renderAll();
+      if (!draft.entries[i]) return;
+      const act = btn.dataset.act;
+      if (act === 'del' && draft.entries.length <= 1) return;
+      edit(d => {
+        const e = d.entries[i];
+        if (act === 'inc') e.n++;
+        if (act === 'dec') e.n = Math.max(1, e.n - 1);
+        if (act === 'del') d.entries.splice(i, 1);
+      });
     });
   });
 }
 
 function renderStats() {
-  const tot = totals(cur);
+  const tot = totals(draft);
   el('s-hp').textContent = tot.hp;
   el('s-sh').textContent = tot.shield;
   el('s-dps').textContent = Math.round(tot.dps);
@@ -685,65 +737,34 @@ function renderStats() {
   el('s-fill').textContent = tot.cap ? Math.round(tot.capUsed / tot.cap * 100) + ' %' : '—';
   el('t-cmd').textContent = `${tot.cmd} / ${COMMAND_CAP}`;
   el('t-cmd').style.color = tot.cmd > COMMAND_CAP ? 'var(--danger)' : '';
-}
 
-function renderEntries() {
-  el('entries').innerHTML = cur.entries.map((e, i) => {
-    const s = SHIPS[e.ship];
-    return `
-      <div class="entry" data-i="${i}">
-        <div class="sprite xs ${s.frame}"></div>
-        <div>
-          <div class="nm">${s.name}</div>
-          <div class="sub">${s.hull} · ${s.hp} 血 · ${s.cmd} 人口</div>
-        </div>
-        <div class="stepper">
-          <button data-act="dec" data-i="${i}">−</button>
-          <b>${e.n}</b>
-          <button data-act="inc" data-i="${i}">＋</button>
-        </div>
-        <button class="x" data-act="del" data-i="${i}" ${cur.entries.length <= 1 ? 'disabled' : ''}>×</button>
-      </div>`;
-  }).join('') + (totals(cur).cmd > COMMAND_CAP
-    ? `<div class="warn-box">人口占用 ${totals(cur).cmd} 超过上限 ${COMMAND_CAP}</div>` : '');
-
-  el('entries').querySelectorAll('[data-act]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const i = Number(btn.dataset.i);
-      const e = cur.entries[i];
-      if (btn.dataset.act === 'inc') e.n++;
-      if (btn.dataset.act === 'dec') e.n = Math.max(1, e.n - 1);
-      if (btn.dataset.act === 'del') {
-        if (cur.entries.length <= 1) return;
-        cur.entries.splice(i, 1);
-      }
-      renderAll();
-    });
-  });
+  el('fb-count').textContent = tot.count;
+  el('fb-types').textContent = draft.entries.length;
+  el('fb-cmd').textContent = tot.cmd;
+  el('fb-cmd').className = tot.cmd > COMMAND_CAP ? 'warn' : '';
 }
 
 /* 阵型编辑：从阵型模板库里勾选若干，战斗中可快速切换 */
 function renderForms() {
-  const chosen = cur.forms || (cur.forms = []);
+  const chosen = draft.forms;
   el('forms').innerHTML = FORMS.map(f => {
     const on = chosen.includes(f.id);
     return `
-      <div class="formrow${on ? ' sel' : ''}" data-form="${f.id}">
+      <div class="formrow${on ? ' sel' : ''}" data-form="${f.id}" title="${f.desc}">
         <span class="ck">${on ? '✓' : ''}</span>
-        <div>
-          <div class="fn">${f.name}</div>
-          <div class="fd">${f.tag} · ${f.desc}</div>
-        </div>
+        <span class="fn">${f.name}</span>
+        <span class="ft">${f.tag}</span>
       </div>`;
   }).join('');
 
   el('forms').querySelectorAll('.formrow').forEach(n => {
     n.addEventListener('click', () => {
       const id = n.dataset.form;
-      const i = chosen.indexOf(id);
-      if (i >= 0) chosen.splice(i, 1);
-      else chosen.push(id);
-      renderForms();
+      edit(d => {
+        const i = d.forms.indexOf(id);
+        if (i >= 0) d.forms.splice(i, 1);
+        else d.forms.push(id);
+      });
     });
   });
 
@@ -754,8 +775,31 @@ function renderAll() {
   renderTemplates();
   renderFleet();
   renderStats();
-  renderEntries();
   renderForms();
+}
+
+/* ---------------- 保存 / 脏状态 ---------------- */
+
+function markDirty(v) {
+  dirty = v;
+  el('btn-save').disabled = !v;
+  el('save-state').textContent = v ? '有未保存的改动' : '已保存';
+  el('save-state').classList.toggle('dirty', v);
+  const hint = v
+    ? '有未保存的改动 · 点右侧「保存编制」生效'
+    : '改动先落在草稿里，点右侧「保存编制」才生效';
+  el('fleet-hint').textContent = hint;
+  el('fleet-hint').style.color = v ? '#e8c14a' : '';
+  el('fleet-hint').style.borderColor = '';
+}
+
+function saveTemplate() {
+  if (!dirty) return;
+  cur.entries = draft.entries.map(e => ({ ...e }));
+  cur.forms = [...draft.forms];
+  dirty = false;
+  renderAll();
+  markDirty(false);
 }
 
 /* ---------------- 选择面板（从左滑出） ---------------- */
@@ -774,7 +818,7 @@ function closePicker() {
 
 function renderPicker() {
   el('d-list').innerHTML = Object.entries(SHIPS).map(([id, s]) => {
-    const already = cur.entries.find(x => x.ship === id);
+    const already = draft.entries.find(x => x.ship === id);
     return `
     <div class="pick${picked === id ? ' sel' : ''}" data-id="${id}">
       <div class="art"><div class="sprite sm ${s.frame}"></div></div>
@@ -811,11 +855,13 @@ function renderPicker() {
 
 function confirmPick() {
   if (!picked) return;
-  const found = cur.entries.find(x => x.ship === picked);
-  if (found) found.n++;
-  else cur.entries.push({ ship: picked, n: 1 });
+  const id = picked;
   closePicker();
-  renderAll();
+  edit(d => {
+    const found = d.entries.find(x => x.ship === id);
+    if (found) found.n++;
+    else d.entries.push({ ship: id, n: 1 });
+  });
 }
 
 /* ---------------- 事件 ---------------- */
@@ -824,13 +870,16 @@ el('add-open').addEventListener('click', openPicker);
 el('d-close').addEventListener('click', closePicker);
 el('mask').addEventListener('click', closePicker);
 el('d-ok').addEventListener('click', confirmPick);
+el('btn-save').addEventListener('click', saveTemplate);
 window.addEventListener('keydown', e => {
   if (e.key === 'Escape') closePicker();
   if (e.key === 'Enter' && el('drawer').classList.contains('open') && picked) confirmPick();
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveTemplate(); }
 });
 
 /* ---------------- 启动 ---------------- */
 renderAll();
+markDirty(false);
 </script>
 </body>
 </html>

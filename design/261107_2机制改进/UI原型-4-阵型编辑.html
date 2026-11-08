@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>UI 原型 4 · 阵型编辑界面</title>
+<link rel="stylesheet" href="./UI原型.css">
+<style>
+  /* 三列：阵型列表 / 演示区 / 参数 */
+  .body.cols-form { grid-template-columns: 268px minmax(0, 1fr) 396px; }
+
+  /* ---------- 左栏：阵型模板 ---------- */
+  .frow {
+    display: grid;
+    grid-template-columns: 1fr 20px;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 9px;
+    margin: 0 8px 6px;
+    border-radius: 0;
+    border: 2px solid transparent;
+    cursor: pointer;
+  }
+  .frow:hover { background: rgba(70,100,130,.18); border-color: var(--px-edge-dim, #24405a); }
+  .frow.sel { background: var(--px-face-sel, #1b3550); border-color: var(--px-hi, #7fc0f5); }
+  .frow .nm { font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
+  .frow .nm span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .frow .sub {
+    font-family: var(--mono); font-size: 10px; color: var(--mute);
+    margin-top: 3px; letter-spacing: 0;
+  }
+  .frow .badge {
+    flex: none;
+    font-size: 9.5px; line-height: 1.4;
+    padding: 0 4px;
+    color: #9dc8ec;
+    border: 1px solid var(--px-edge-dim, #24405a);
+    background: #0b141c;
+  }
+  .frow .badge.mine { color: #7fd7a2; border-color: rgba(87,201,138,.45); }
+
+  .delx {
+    width: 18px; height: 18px; padding: 0;
+    display: grid; place-items: center;
+    border-radius: 0;
+    border: 1px solid var(--px-edge-dim, #24405a);
+    background: #0b141c;
+    color: #647e97;
+    font-size: 11px; line-height: 1;
+    cursor: pointer;
+  }
+  .delx:hover { border-color: var(--danger); color: #ffb3ae; background: rgba(232,86,79,.18); }
+  .delx:disabled { opacity: .25; cursor: not-allowed; }
+  .delx:disabled:hover { border-color: var(--px-edge-dim, #24405a); color: #647e97; background: #0b141c; }
+
+  /* ---------- 中栏：演示 / 模拟战 ---------- */
+  .stage {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    margin: 12px;
+    border: 2px dashed rgba(88,126,166,.22);
+    background:
+      repeating-linear-gradient(0deg,  rgba(88,126,166,.055) 0 1px, transparent 1px 32px),
+      repeating-linear-gradient(90deg, rgba(88,126,166,.055) 0 1px, transparent 1px 32px),
+      radial-gradient(ellipse 60% 50% at 50% 46%, #0c1622 0%, #070a0f 70%, #05070a 100%);
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+  }
+  .stage .placeholder {
+    text-align: center;
+    max-width: 430px;
+    padding: 0 20px;
+    position: relative;
+    z-index: 2;
+  }
+  .stage .placeholder .t {
+    font-size: 13px; letter-spacing: .22em; color: #7f9ab4;
+    text-transform: uppercase;
+  }
+  .stage .placeholder .d {
+    margin-top: 10px; font-size: 12px; line-height: 1.9; color: var(--mute);
+  }
+  .stage .placeholder .code {
+    display: inline-block; margin-top: 14px;
+    font-family: var(--mono); font-size: 11px; color: #6f8aa4;
+    border: 1px solid var(--px-edge-dim, #24405a); background: #0b141c;
+    padding: 4px 9px;
+  }
+  .stage-hud {
+    position: absolute; top: 10px; left: 12px; right: 12px;
+    display: flex; align-items: center; gap: 10px;
+    font-size: 11px; color: var(--mute);
+    pointer-events: none;
+  }
+  .stage-hud b { color: var(--dim); font-weight: 500; }
+  .stage-hud .pill {
+    font-family: var(--mono); font-size: 10.5px;
+    padding: 1px 6px;
+    border: 1px solid var(--px-edge-dim, #24405a);
+    background: #0b141c; color: #9dc8ec;
+  }
+  .stage-hud .right { margin-left: auto; }
+
+  /* 模拟战控制面板 */
+  .simctl {
+    flex: none;
+    margin: 0 12px 12px;
+    border: 2px solid var(--px-edge-dim, #24405a);
+    background: var(--px-face, #16222e);
+    padding: 10px 12px 11px;
+  }
+  .simctl .cap {
+    font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    color: #7f9ab4; margin-bottom: 9px;
+    padding-left: 8px; border-left: 3px solid var(--px-edge, #3d6183);
+  }
+  .simctl .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .simctl .field { min-width: 0; }
+  .simctl .field > label {
+    display: block; font-size: 10.5px; color: var(--mute);
+    margin-bottom: 4px; letter-spacing: .04em;
+  }
+  .simctl .field select { width: 100%; height: 26px; font-size: 12px; }
+  .simctl .field .wrap { display: flex; gap: 6px; }
+  .simctl .field .wrap select { flex: 1; min-width: 0; }
+  .simctl .field .clr {
+    flex: none; width: 26px; height: 26px; padding: 0;
+    display: grid; place-items: center;
+    border-radius: 0;
+    border: 2px solid rgba(200,80,60,.45);
+    background: rgba(140,40,30,.18);
+    color: #ffb4ad; cursor: pointer; font-size: 12px; line-height: 1;
+  }
+  .simctl .field .clr:hover { background: rgba(180,60,45,.34); border-color: var(--danger); }
+  .simctl .field .clr:disabled { opacity: .3; cursor: not-allowed; }
+
+  .simctl .acts {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 11px; padding-top: 10px;
+    border-top: 1px solid rgba(88,126,166,.14);
+  }
+  .simctl .acts .btn { height: 26px; padding: 0 14px; font-size: 11.5px; }
+  .simctl .acts .state {
+    margin-left: auto;
+    font-family: var(--mono); font-size: 10.5px; color: var(--mute);
+  }
+  .simctl .acts .state b { color: var(--dim); font-weight: 500; }
+  .simctl .acts .state b.run { color: #7fd7a2; }
+  .simctl .acts .state b.pause { color: #e8c14a; }
+
+  /* ---------- 右栏：Couzin 参数 ---------- */
+  .param-group + .param-group { margin-top: 14px; }
+  .pgroup-title {
+    display: flex; align-items: baseline; gap: 8px;
+    font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    color: #7f9ab4; margin: 0 0 8px;
+    padding-left: 8px; border-left: 3px solid var(--px-edge, #3d6183);
+  }
+  .pgroup-title .n { margin-left: auto; font-family: var(--mono); color: var(--mute); letter-spacing: 0; text-transform: none; }
+  .pgroup-title .hint { font-size: 9.5px; letter-spacing: 0; text-transform: none; color: #54697e; }
+
+  .param {
+    padding: 6px 8px 8px;
+    border: 1px solid rgba(88,126,166,.12);
+    margin-bottom: 6px;
+  }
+  .param:hover { border-color: rgba(88,126,166,.24); }
+  .param.touched { border-color: rgba(127,192,245,.4); background: rgba(79,163,232,.05); }
+  .param .top {
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  .param .k {
+    font-family: var(--mono); font-size: 11px; color: #9dc8ec;
+  }
+  .param .nm { font-size: 12px; }
+  .param .v {
+    margin-left: auto;
+    font-family: var(--mono); font-size: 12.5px; color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .param .desc { font-size: 10.5px; color: var(--mute); margin: 3px 0 6px; line-height: 1.55; }
+
+  /* 像素滑块 */
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    display: block; width: 100%; height: 14px;
+    margin: 0; padding: 0;
+    border: 0; background: transparent;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 8px;
+    background: #0b141c;
+    border: 2px solid var(--px-edge-dim, #24405a);
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px; height: 18px;
+    margin-top: -7px;
+    border-radius: 0;
+    background: var(--px-hi, #7fc0f5);
+    border: 2px solid var(--px-dark, #070c12);
+    box-shadow: inset 1px 1px 0 rgba(255,255,255,.45);
+  }
+  input[type="range"]:hover::-webkit-slider-thumb { background: #a8d8ff; }
+  input[type="range"]::-moz-range-track { height: 8px; background: #0b141c; border: 2px solid #24405a; }
+  input[type="range"]::-moz-range-thumb {
+    width: 10px; height: 16px; border-radius: 0;
+    background: #7fc0f5; border: 2px solid #070c12;
+  }
+
+  .psave {
+    flex: none;
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px;
+    border-top: 2px solid var(--px-edge-dim, #24405a);
+    background: rgba(8,12,18,.5);
+  }
+  .psave .state {
+    font-size: 10.5px; color: var(--mute);
+    font-family: var(--mono);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .psave .state.dirty { color: #e8c14a; }
+  .psave .btn { height: 30px; padding: 0 16px; font-size: 12px; }
+  .psave .btn:disabled { opacity: .4; cursor: not-allowed; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="topbar">
+    <div class="brand">SimpleOpRTS <em>· 阵型编辑</em></div>
+    <div class="crumb"><a href="./UI原型-0-总览.html">原型总览</a> <span>/</span> <span class="muted">阵型编辑</span></div>
+    <div class="spacer"></div>
+    <div class="stat">阵型 <b class="mono" id="t-count">4</b></div>
+    <div class="stat">参数 <b class="mono" id="t-state">已保存</b></div>
+  </div>
+
+  <div class="body cols-form">
+
+    <!-- ===== 左：阵型模板 ===== -->
+    <div class="col">
+      <div class="panel-head">阵型模板 <span class="n" id="lib-n">4</span></div>
+      <div style="padding:8px 10px;border-bottom:2px solid var(--px-edge-dim)">
+        <button class="btn primary" style="width:100%" id="new-form">＋ 新建阵型</button>
+      </div>
+      <div class="scroll" id="lib" style="padding-top:8px"></div>
+      <div class="foot">点阵型切换；右侧改参数，保存后生效</div>
+    </div>
+
+    <!-- ===== 中：演示 + 模拟战 ===== -->
+    <div class="col center">
+      <div class="panel-head">阵型效果演示 <span class="n" id="stage-title">标准间距集群阵型</span></div>
+
+      <div class="stage">
+        <div class="stage-hud">
+          <span>阵型 <b id="hud-name">标准间距集群阵型</b></span>
+          <span class="pill" id="hud-src">内置</span>
+          <span class="pill" id="hud-squad">第一突击队 × 12</span>
+          <span class="right" id="hud-opp">对手 盾墙队</span>
+        </div>
+
+        <div class="placeholder">
+          <div class="t">模拟战区域</div>
+          <div class="d">
+            原型阶段不实现渲染。<br>
+            实装后这里是一队舰船按左侧阵型的 Couzin 参数实时运动，
+            可以直接看出间距、抱团程度与接敌反应。
+          </div>
+          <div class="code">render(units, squads) · 由 L1 群体层驱动</div>
+        </div>
+      </div>
+
+      <!-- 模拟战控制面板 -->
+      <div class="simctl">
+        <div class="cap">模拟战控制面板</div>
+
+        <div class="row">
+          <div class="field">
+            <label>预览 / 我方编制</label>
+            <select id="sel-mine"></select>
+          </div>
+          <div class="field">
+            <label>对手编制（可选）</label>
+            <div class="wrap">
+              <select id="sel-opp"></select>
+              <button class="clr" id="clr-opp" title="取消对手">×</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="acts">
+          <button class="btn ghost" id="btn-pause">暂停</button>
+          <button class="btn ghost" id="btn-reset">重置</button>
+          <button class="btn ghost" id="btn-side">切换指挥权</button>
+          <div class="state">
+            <b id="st-run" class="run">运行中</b> · 指挥权 <b id="st-side">蓝方</b>
+          </div>
+        </div>
+      </div>
+
+      <div class="foot">模拟区只是占位；控制面板的按钮原型里只做状态切换</div>
+    </div>
+
+    <!-- ===== 右：Couzin 参数 ===== -->
+    <div class="col">
+      <div class="panel-head">Couzin 参数 <span class="n" id="p-title">标准间距集群阵型</span></div>
+      <div class="scroll" style="padding:10px 12px" id="params"></div>
+      <div class="psave">
+        <div class="state" id="p-state">已保存</div>
+        <button class="btn ghost" id="btn-revert" disabled>还原</button>
+        <button class="btn primary" id="btn-save" disabled>保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------------- 参数定义 ----------------
+   12 个 Couzin 参数，键名与 core/sim/squad-layer.js 的 P_DEFS 一致。 */
+const PARAM_GROUPS = [
+  {
+    title: '社交参数', hint: '决定怎么站位',
+    items: [
+      { k:'wSep', name:'分离权重', min:0, max:3, step:0.05, dec:2,
+        desc:'两舰靠近时互相推开的力度，越大越不容易挤在一起' },
+      { k:'wAli', name:'对齐权重', min:0, max:3, step:0.05, dec:2,
+        desc:'追随邻居速度方向的力度，越大越"齐头并进"' },
+      { k:'wCoh', name:'凝聚权重', min:0, max:3, step:0.05, dec:2,
+        desc:'拉向队形重心的力度，越大越抱团' },
+      { k:'omega', name:'命令力幅值', min:0, max:3, step:0.05, dec:2,
+        desc:'朝命令目标时的速度增益，通常不动' },
+      { k:'wCmd', name:'命令力权重', min:0, max:3, step:0.05, dec:2,
+        desc:'听指挥的程度，越大越难被挤离航线' },
+    ]
+  },
+  {
+    title: '半径', hint: '单位：世界像素',
+    items: [
+      { k:'rRep', name:'排斥半径', min:8, max:120, step:1, dec:0,
+        desc:'两舰近于此距离就开始互相推开' },
+      { k:'rOri', name:'对齐半径', min:8, max:200, step:1, dec:0,
+        desc:'此距离内才对齐邻居的速度' },
+      { k:'rAtt', name:'凝聚半径', min:16, max:400, step:1, dec:0,
+        desc:'超过此距离不再有向心力，相当于队形半径的上限' },
+    ]
+  },
+  {
+    title: '交战参数', hint: '决定怎么接敌',
+    items: [
+      { k:'wThreat', name:'威胁排斥', min:0, max:3, step:0.05, dec:2,
+        desc:'敌人进入威胁区时后退的力度，越大越"见敌就退"' },
+      { k:'wSeek', name:'寻敌权重', min:0, max:3, step:0.05, dec:2,
+        desc:'主动扑向敌人的力度，越大越爱贴脸' },
+      { k:'r4', name:'威胁区半径', min:8, max:300, step:1, dec:0,
+        desc:'敌人进到这个圈里就会被往外推' },
+      { k:'r5', name:'感知半径', min:16, max:600, step:1, dec:0,
+        desc:'能看到敌人的最远距离' },
+    ]
+  },
+];
+
+const P_KEYS = PARAM_GROUPS.flatMap(g => g.items.map(i => i.k));
+const P_META = {};
+for (const g of PARAM_GROUPS) for (const it of g.items) P_META[it.k] = it;
+
+/* ---------------- 阵型模板（4 条内置，取自 templates.js 的 4 个战斗群） ---------------- */
+const FORMS = [
+  { id:'form.standard', name:'标准间距集群阵型', from:'蜂群战斗群', builtin:true,
+    p:{ wSep:1.50, wAli:0.95, wCoh:1.15, omega:1.10, wCmd:1.20,
+        rRep:17, rOri:46, rAtt:86, wThreat:1.50, wSeek:1.50, r4:80, r5:300 } },
+  { id:'form.guerrilla', name:'游击阵型', from:'游击鱼雷战术群', builtin:true,
+    p:{ wSep:1.00, wAli:0.50, wCoh:0.45, omega:1.10, wCmd:1.20,
+        rRep:34, rOri:64, rAtt:120, wThreat:1.20, wSeek:0.85, r4:200, r5:350 } },
+  { id:'form.dense', name:'密集集群阵型', from:'要塞战术群', builtin:true,
+    p:{ wSep:1.05, wAli:0.50, wCoh:1.45, omega:1.10, wCmd:1.20,
+        rRep:35, rOri:60, rAtt:104, wThreat:2.00, wSeek:1.00, r4:55, r5:270 } },
+  { id:'form.wide', name:'大间距集群阵型', from:'圣盾战斗群', builtin:true,
+    p:{ wSep:1.40, wAli:0.70, wCoh:0.70, omega:1.10, wCmd:1.20,
+        rRep:30, rOri:58, rAtt:200, wThreat:1.70, wSeek:1.60, r4:60, r5:280 } },
+];
+
+/* 小队编制（选择用）：预设 + 我的编制 */
+const SQUAD_PRESETS = [
+  { id:'sq.preset1', name:'第一突击队（预设）', n:12 },
+  { id:'sq.preset2', name:'盾墙队（预设）', n:16 },
+  { id:'sq.preset3', name:'游击群（预设）', n:10 },
+];
+const SQUAD_MINE = [
+  { id:'sq.mine1', name:'我的·混编试验队', n:14 },
+];
+
+/* ---------------- 状态 ---------------- */
+let curForm = FORMS[0];
+let draft = { ...curForm.p };     // 滑块里的草稿值
+let dirty = false;
+let running = true;
+let side = 0;                      // 0 = 蓝方指挥, 1 = 红方
+let mineId = 'sq.preset1';
+let oppId = '';                    // '' = 不设对手
+
+const el = id => document.getElementById(id);
+const fmt = (k, v) => Number(v).toFixed(P_META[k].dec);
+
+/* ---------------- 渲染：左栏列表 ---------------- */
+function renderLib() {
+  el('lib').innerHTML = FORMS.map(f => `
+    <div class="frow${f === curForm ? ' sel' : ''}" data-id="${f.id}">
+      <div>
+        <div class="nm">
+          <span>${f.name}</span>
+          <i class="badge${f.builtin ? '' : ' mine'}">${f.builtin ? '内置' : '自建'}</i>
+        </div>
+        <div class="sub">排斥 ${f.p.rRep} · 对齐 ${f.p.rOri} · 凝聚 ${f.p.rAtt}</div>
+      </div>
+      <button class="delx" data-del="${f.id}" ${f.builtin ? 'disabled' : ''}
+              title="${f.builtin ? '内置阵型不可删除' : '删除这个阵型'}">✕</button>
+    </div>`).join('');
+
+  el('lib').querySelectorAll('.frow').forEach(n => {
+    n.addEventListener('click', () => selectForm(n.dataset.id));
+  });
+  el('lib').querySelectorAll('.delx').forEach(b => {
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      if (b.disabled) return;
+      delForm(b.dataset.del);
+    });
+  });
+
+  el('lib-n').textContent = FORMS.length;
+  el('t-count').textContent = FORMS.length;
+}
+
+/* ---------------- 渲染：右栏参数 ---------------- */
+function renderParams() {
+  el('params').innerHTML = PARAM_GROUPS.map(g => `
+    <div class="param-group">
+      <div class="pgroup-title">${g.title}
+        <span class="hint">${g.hint}</span>
+        <span class="n">${g.items.length} 项</span>
+      </div>
+      ${g.items.map(it => {
+        const v = draft[it.k];
+        const changed = Math.abs(v - curForm.p[it.k]) > 1e-9;
+        return `
+        <div class="param${changed ? ' touched' : ''}" data-k="${it.k}">
+          <div class="top">
+            <span class="k">${it.k}</span>
+            <span class="nm">${it.name}</span>
+            <span class="v" id="v-${it.k}">${fmt(it.k, v)}</span>
+          </div>
+          <div class="desc">${it.desc}</div>
+          <input type="range" data-k="${it.k}"
+                 min="${it.min}" max="${it.max}" step="${it.step}" value="${v}">
+        </div>`;
+      }).join('')}
+    </div>`).join('');
+
+  el('params').querySelectorAll('input[type="range"]').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const k = inp.dataset.k;
+      draft[k] = Number(inp.value);
+      el('v-' + k).textContent = fmt(k, draft[k]);
+      markDirty(true);
+      inp.closest('.param').classList.toggle('touched',
+        Math.abs(draft[k] - curForm.p[k]) > 1e-9);
+    });
+  });
+}
+
+/* ---------------- 脏状态 / 保存 ---------------- */
+function markDirty(v) {
+  dirty = v;
+  el('btn-save').disabled = !v;
+  el('btn-revert').disabled = !v;
+  el('btn-save').title = curForm.builtin ? '内置阵型不可覆盖，保存会另存为副本' : '覆盖保存到当前阵型';
+  el('p-state').textContent = v
+    ? (curForm.builtin ? '参数已修改，保存将另存为新阵型' : '参数已修改，未保存')
+    : '已保存';
+  el('p-state').classList.toggle('dirty', v);
+  el('t-state').textContent = v ? '未保存' : '已保存';
+  el('t-state').style.color = v ? 'var(--warn)' : '';
+}
+
+function refreshHeader() {
+  el('p-title').textContent = curForm.name;
+  el('stage-title').textContent = curForm.name;
+  el('hud-name').textContent = curForm.name;
+  el('hud-src').textContent = curForm.builtin ? '内置' : '自建';
+}
+
+function selectForm(id) {
+  const f = FORMS.find(x => x.id === id);
+  if (!f) return;
+  curForm = f;
+  draft = { ...f.p };
+  markDirty(false);
+  renderLib();
+  renderParams();
+  refreshHeader();
+}
+
+/* 保存：内置阵型另存为自建（不覆盖），自建阵型就地覆盖 */
+function saveForm() {
+  if (!dirty) return;
+  if (curForm.builtin) {
+    const copy = {
+      id: 'form.usr_' + (FORMS.filter(f => !f.builtin).length + 1),
+      name: curForm.name + ' · 改',
+      from: curForm.from,
+      builtin: false,
+      p: { ...draft },
+    };
+    FORMS.push(copy);
+    curForm = copy;
+  } else {
+    curForm.p = { ...draft };
+  }
+  draft = { ...curForm.p };
+  markDirty(false);
+  renderLib();
+  renderParams();
+  refreshHeader();
+}
+
+function revertForm() {
+  draft = { ...curForm.p };
+  markDirty(false);
+  renderParams();
+}
+
+function newForm() {
+  const copy = {
+    id: 'form.usr_' + (FORMS.filter(f => !f.builtin).length + 1),
+    name: '新阵型 ' + (FORMS.filter(f => !f.builtin).length + 1),
+    from: curForm.name,
+    builtin: false,
+    p: { ...draft },
+  };
+  FORMS.push(copy);
+  selectForm(copy.id);
+}
+
+function delForm(id) {
+  const i = FORMS.findIndex(f => f.id === id);
+  if (i < 0 || FORMS[i].builtin) return;
+  const wasCur = FORMS[i] === curForm;
+  FORMS.splice(i, 1);
+  if (wasCur) selectForm(FORMS[0].id);
+  else { renderLib(); }
+}
+
+/* ---------------- 模拟战控制面板 ---------------- */
+function squadOptions() {
+  const opt = (list) => list.map(s => `<option value="${s.id}">${s.name} · ${s.n} 舰</option>`).join('');
+  return {
+    mine: `<optgroup label="游戏预设">${opt(SQUAD_PRESETS)}</optgroup>`
+        + `<optgroup label="我的编制">${opt(SQUAD_MINE)}</optgroup>`,
+    opp: `<option value="">（不设对手）</option>`
+        + `<optgroup label="游戏预设">${opt(SQUAD_PRESETS)}</optgroup>`
+        + `<optgroup label="我的编制">${opt(SQUAD_MINE)}</optgroup>`,
+  };
+}
+
+function initSimCtl() {
+  const o = squadOptions();
+  el('sel-mine').innerHTML = o.mine;
+  el('sel-opp').innerHTML = o.opp;
+  el('sel-mine').value = mineId;
+  el('sel-opp').value = oppId;
+
+  el('sel-mine').addEventListener('change', e => { mineId = e.target.value; syncHud(); });
+  el('sel-opp').addEventListener('change', e => { oppId = e.target.value; syncHud(); });
+  el('clr-opp').addEventListener('click', () => {
+    oppId = '';
+    el('sel-opp').value = '';
+    syncHud();
+  });
+
+  el('btn-pause').addEventListener('click', () => {
+    running = !running;
+    el('btn-pause').textContent = running ? '暂停' : '继续';
+    const b = el('st-run');
+    b.textContent = running ? '运行中' : '已暂停';
+    b.className = running ? 'run' : 'pause';
+  });
+
+  el('btn-reset').addEventListener('click', () => {
+    running = true;
+    el('btn-pause').textContent = '暂停';
+    const b = el('st-run');
+    b.textContent = '运行中';
+    b.className = 'run';
+    side = 0;
+    syncHud();
+  });
+
+  /* 切换指挥权：交换"我方/对手"，指挥方标签跟着变 */
+  el('btn-side').addEventListener('click', () => {
+    side = side ? 0 : 1;
+    const a = el('sel-mine').value, b = el('sel-opp').value;
+    el('sel-mine').value = b || a;
+    el('sel-opp').value = b ? a : '';
+    mineId = el('sel-mine').value;
+    oppId = el('sel-opp').value;
+    syncHud();
+  });
+
+  syncHud();
+}
+
+function squadName(id) {
+  if (!id) return '';
+  const s = [...SQUAD_PRESETS, ...SQUAD_MINE].find(x => x.id === id);
+  return s ? s.name : '';
+}
+
+function syncHud() {
+  const mine = [...SQUAD_PRESETS, ...SQUAD_MINE].find(s => s.id === mineId);
+  el('hud-squad').textContent = mine ? `${mine.name} × ${mine.n}` : '未选择编制';
+  el('hud-opp').textContent = oppId ? `对手 ${squadName(oppId)}` : '对手（无）';
+  el('st-side').textContent = side ? '红方' : '蓝方';
+  el('clr-opp').disabled = !oppId;
+}
+
+/* ---------------- 启动 ---------------- */
+renderLib();
+renderParams();
+refreshHeader();
+initSimCtl();
+markDirty(false);
+
+el('new-form').addEventListener('click', newForm);
+el('btn-save').addEventListener('click', saveForm);
+el('btn-revert').addEventListener('click', revertForm);
+window.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveForm(); }
+});
+</script>
+</body>
+</html>

@@ -5,8 +5,8 @@
 <title>UI 原型 1 · 战斗指挥界面</title>
 <link rel="stylesheet" href="./UI原型.css">
 <style>
-  /* ---- 战斗指挥：战场铺满，右栏只放小队 ---- */
-  .stage { display: grid; grid-template-columns: minmax(0,1fr) 312px; height: 100%; }
+  /* ---- 战斗指挥：左「指挥信息 + 建造」／中战场／右「小队」 ---- */
+  .stage { display: grid; grid-template-columns: 272px minmax(0,1fr) 304px; height: 100%; }
 
   .field {
     position: relative;
@@ -35,56 +35,59 @@
   }
 
   .field-label {
-    position: absolute; left: 26px; top: 24px;
+    position: absolute; left: 26px; top: 22px;
     font-size: 10px; letter-spacing: .18em; text-transform: uppercase;
     color: rgba(120,150,180,.45);
+    pointer-events: none;
   }
   .field-hint {
-    position: absolute; left: 26px; bottom: 22px;
+    position: absolute; left: 26px; bottom: 20px;
     font-size: 11px; color: rgba(120,150,180,.55);
     display: flex; gap: 14px;
+    pointer-events: none;
   }
   .field-hint kbd {
-    font: inherit; padding: 1px 5px; border-radius: 3px;
+    font: inherit; padding: 1px 5px;
     border: 1px solid rgba(90,130,170,.28);
     background: rgba(60,90,120,.2);
     color: #9fb9d2; font-size: 10px;
   }
 
-  /* 小队标记：出现在小队质心 */
-  .marker {
+  /* ---------- 战场上的小队标识：透明长方形 ---------- */
+  .field .marker {
     position: absolute;
     transform: translate(-50%, -50%);
-    width: 30px; height: 30px;
-    border-radius: 50%;
-    display: grid; place-items: center;
-    font-size: 12px; font-weight: 700;
-    color: #06101a;
-    border: 2px solid rgba(255,255,255,.25);
-    cursor: pointer;
-    z-index: 5;
-    transition: box-shadow .12s, transform .12s;
-    box-shadow: 0 0 0 0 rgba(79,163,232,0);
-  }
-  .marker:hover { transform: translate(-50%,-50%) scale(1.1); }
-  .marker.sel {
-    box-shadow: 0 0 0 3px rgba(79,163,232,.55), 0 0 22px rgba(79,163,232,.5);
-  }
-  .marker .cnt {
-    position: absolute; bottom: -15px;
-    font-size: 10px; font-weight: 500;
-    color: #a9c4dc; font-family: var(--mono);
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 3px 9px;
+    border-radius: 0;
+    border: 1px solid rgba(150,185,215,.42);
+    background: rgba(7, 13, 19, .42);
+    color: #cfe2f2;
+    font-size: 11.5px;
     white-space: nowrap;
-    text-shadow: 0 1px 3px #000;
+    cursor: pointer;
+    z-index: 6;
+    box-shadow: none;
+    text-shadow: 0 1px 2px #000, 0 0 4px #000, 0 0 9px rgba(0,0,0,.85);
+    transition: border-color .12s, background .12s;
   }
-  /* 选中时的朝向环 */
-  .marker.sel::after {
-    content: ""; position: absolute; inset: -9px;
-    border: 1px dashed rgba(79,163,232,.55);
-    border-radius: 50%;
-    animation: spin 12s linear infinite;
+  .field .field-ship { z-index: 1; }
+  .field .marker:hover { border-color: rgba(180,215,245,.8); background: rgba(79,163,232,.08); }
+  .field .marker .nm { letter-spacing: .02em; }
+  .field .marker .cnt {
+    font-family: var(--mono); font-size: 11px;
+    color: #9fb9d2; font-variant-numeric: tabular-nums;
+    padding-left: 8px;
+    border-left: 1px solid rgba(150,185,215,.3);
   }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  .field .marker.sel {
+    border-color: var(--px-hi, #7fc0f5);
+    border-width: 2px;
+    background: rgba(79,163,232,.14);
+    box-shadow: 3px 3px 0 rgba(0,0,0,.55);
+    color: #eaf5ff;
+  }
+  .field .marker.sel .cnt { color: #cfe4f7; }
 
   /* 框选 */
   .marquee {
@@ -96,57 +99,300 @@
     display: none;
   }
 
-  /* ---- 右栏 ---- */
+  /* ---------- 命令信标 ---------- */
+  .beacon-links {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 3;
+  }
+  .beacon-line {
+    stroke: rgba(127,192,245,.22);
+    stroke-width: 1;
+    stroke-dasharray: 4 5;
+  }
+  .beacon-line.on { stroke: rgba(157,208,255,.6); }
+
+  .beacon {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    width: 15px; height: 15px;
+    z-index: 4;
+    pointer-events: none;
+    opacity: .5;
+  }
+  .beacon.on { opacity: 1; }
+  .beacon i {
+    position: absolute; inset: 0;
+    transform: rotate(45deg);
+    border: 2px solid rgba(127,192,245,.75);
+    background: rgba(79,163,232,.25);
+  }
+  .beacon.on i {
+    border-color: #9dd0ff;
+    background: rgba(79,163,232,.4);
+    box-shadow: 0 0 10px rgba(79,163,232,.55);
+  }
+  .beacon .lb {
+    position: absolute; top: 17px; left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px; letter-spacing: .06em;
+    color: #8fb6d6; white-space: nowrap;
+    text-shadow: 0 1px 2px #000;
+    display: none;
+  }
+  /* 只有"被选中小队"的信标才显示文字，避免战场太吵 */
+  .beacon.on .lb { display: block; }
+
+  /* ---------- 左栏卡片 ---------- */
+  .ccard {
+    margin: 10px 10px 0;
+    border: 2px solid var(--px-edge-dim, #24405a);
+    background: var(--px-face, #16222e);
+  }
+  .ccard .panel-head { border-bottom: 2px solid var(--px-edge-dim, #24405a); }
+  .ccard .sec { padding: 10px 11px 12px; }
+
+  /* 阵营切换 */
+  .faction-bar {
+    flex: none;
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 2px solid var(--px-edge-dim, #24405a);
+    background: rgba(8, 12, 18, .6);
+  }
+  .faction-bar .lbl {
+    font-size: 10px; letter-spacing: .12em; color: var(--mute);
+    text-transform: uppercase; margin-right: 2px;
+  }
+  .fbtn {
+    flex: 1;
+    height: 24px;
+    font-size: 12px; letter-spacing: .06em;
+    border-radius: 0;
+    border: 2px solid var(--px-edge-dim, #24405a);
+    background: #0b141c;
+    color: #6f8aa4;
+    cursor: pointer;
+    box-shadow: none;
+  }
+  .fbtn:hover { color: #cfe4f7; border-color: var(--px-hi, #7fc0f5); }
+  .fbtn.on {
+    color: #d6ecff;
+    border-color: var(--px-hi, #7fc0f5);
+    background: var(--px-face-sel, #1b3550);
+  }
+  .fbtn:active { transform: none; box-shadow: none; }
+
+  /* 生产线 */
+  .line + .line { margin-top: 9px; }
+  .line .top {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px;
+  }
+  .line .no {
+    font-family: var(--mono); font-size: 10px; color: var(--mute);
+  }
+  .line .st {
+    flex: none;
+    font-size: 9.5px; line-height: 1.5;
+    padding: 0 5px;
+    border: 1px solid rgba(88,126,166,.28);
+    color: #6f8aa4;
+    background: #0b141c;
+    white-space: nowrap;
+  }
+  .line .st.build { color: #9dd0ff; border-color: rgba(127,192,245,.5); background: rgba(79,163,232,.14); }
+  .line .st.idle  { color: #7fd7a2; border-color: rgba(87,201,138,.42); background: rgba(87,201,138,.1); }
+  .line .nm {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--dim);
+  }
+  .line .pct {
+    margin-left: auto; font-family: var(--mono); font-size: 10px;
+    color: var(--text); font-variant-numeric: tabular-nums;
+  }
+  .line .bar { margin-top: 4px; height: 4px; }
+  .line .bar > i { background: var(--accent); }
+  .line .bar.mod > i { background: #57c98a; }
+  .line .note { font-size: 9.5px; color: #54697e; margin-top: 4px; }
+
+  /* 小队模板：双列 */
+  .tplcard { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .tpl-grid {
+    flex: 1; min-height: 0; overflow: auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 8px;
+    align-content: start;
+  }
+  .tpl-card {
+    border: 1px solid rgba(88,126,166,.22);
+    background: #0f1a24;
+    padding: 6px 7px 7px;
+    min-width: 0;
+  }
+  .tpl-card .tn {
+    font-size: 11px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tpl-card .tm {
+    font-family: var(--mono); font-size: 9px; color: var(--mute);
+    margin-top: 2px; white-space: nowrap;
+  }
+  .tpl-card .tbtn {
+    width: 100%; height: 20px; margin-top: 6px;
+    font-size: 10px; letter-spacing: .02em;
+    border-radius: 0;
+    border: 1px solid var(--px-edge-dim, #24405a);
+    background: #0b141c;
+    color: #9dc8ec;
+    cursor: pointer;
+    box-shadow: none;
+  }
+  .tpl-card .tbtn:hover { border-color: var(--px-hi, #7fc0f5); color: #d6ecff; background: var(--px-face-sel, #1b3550); }
+  .tpl-card .tbtn:active { transform: none; box-shadow: none; }
+  .tpl-card .tbtn.lack { color: #c08f88; border-color: rgba(200,80,60,.45); }
+  .tpl-card .tbtn.done { color: #7fd7a2; border-color: rgba(87,201,138,.5); background: rgba(87,201,138,.12); }
+
+  .cmdval { margin-bottom: 10px; }
+  .cmdval .lbl {
+    font-size: 10px; letter-spacing: .12em; color: var(--mute);
+    text-transform: uppercase;
+  }
+  .cmdval .big {
+    display: flex; align-items: baseline; gap: 5px;
+    margin: 2px 0 6px;
+  }
+  .cmdval .big b {
+    font-family: var(--mono); font-size: 22px; font-weight: 500;
+    color: var(--text); font-variant-numeric: tabular-nums;
+  }
+  .cmdval .big b.warn { color: var(--warn); }
+  .cmdval .big em {
+    font-style: normal; font-size: 11.5px; color: var(--mute);
+    font-family: var(--mono);
+  }
+  .ccard .kv { padding: 2px 0; }
+
+  .build-empty {
+    margin: 10px;
+    flex: 1;
+    min-height: 120px;
+    display: grid; place-items: center;
+    text-align: center;
+    border: 2px dashed rgba(88,126,166,.24);
+    color: var(--mute);
+    font-size: 12px;
+    line-height: 2;
+  }
+  .build-empty b { display: block; font-size: 12.5px; color: #7f9ab4; font-weight: 500; letter-spacing: .06em; }
+  .build-empty span { font-size: 10.5px; color: #4f6478; }
+  .left .foot a { color: var(--dim); text-decoration: none; border-bottom: 1px dotted rgba(140,170,200,.3); }
+  .left .foot a:hover { color: var(--accent); }
+
+  /* ---------- 右栏：小队行 ---------- */
   .squad-row {
     display: grid;
-    grid-template-columns: 4px 26px 1fr auto;
-    gap: 8px;
+    grid-template-columns: minmax(0,1fr) auto;
+    gap: 4px 8px;
     align-items: center;
-    padding: 8px 10px 7px;
+    padding: 7px 10px 8px;
     border-bottom: 1px solid var(--line-soft);
-    cursor: pointer;
     border-left: 2px solid transparent;
+    cursor: pointer;
   }
   .squad-row:hover { background: rgba(70,100,130,.16); }
   .squad-row.sel {
     background: linear-gradient(90deg, rgba(79,163,232,.16), rgba(79,163,232,.04));
     border-left-color: var(--accent);
   }
-  .squad-row .bar-k { width: 4px; height: 30px; border-radius: 2px; }
-  .squad-row .key {
-    width: 26px; height: 26px; border-radius: 50%;
-    display: grid; place-items: center;
-    font-size: 11px; font-weight: 700; color: #06101a;
-  }
-  .squad-row .info { min-width: 0; display: block; }
   .squad-row .nm {
-    display: block;
-    font-size: 12px; color: var(--text);
+    font-size: 12.5px; color: var(--text);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .squad-row .sub {
-    display: block;
-    font-size: 10.5px; color: var(--mute);
-    margin-top: 2px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .squad-row .right { display: block; text-align: right; }
   .squad-row .alive {
     font-family: var(--mono); font-size: 12px; color: var(--text);
     font-variant-numeric: tabular-nums;
   }
   .squad-row .alive em { color: var(--mute); font-style: normal; font-size: 10px; }
-  .squad-row .bars { margin-top: 5px; display: grid; gap: 2px; }
-  .squad-row .bars .bar { height: 3px; }
 
-  .state-pill {
-    font-size: 10px; padding: 0 5px; border-radius: 3px;
-    border: 1px solid rgba(90,130,170,.25);
-    color: var(--dim);
+  .forms-row {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; gap: 4px;
+    min-width: 0;
   }
-  .state-pill.fight { color: #ffb4ad; border-color: rgba(200,80,60,.4); background: rgba(140,40,30,.18); }
-  .state-pill.move  { color: #a8e6bd; border-color: rgba(60,160,110,.35); background: rgba(30,110,70,.14); }
-  .state-pill.idle  { color: var(--mute); }
+  .forms-row > i {
+    flex: none;
+    font-style: normal; font-size: 9.5px; letter-spacing: .08em;
+    color: #54697e;
+  }
+  .forms-row .spacer { flex: 1; }
+
+  /* 小队状态：自动 / 受到命令（两个状态尺寸完全一致，只换配色） */
+  .status-chip {
+    flex: none;
+    font-size: 9.5px; line-height: 1.5;
+    padding: 0 5px;
+    border: 1px solid rgba(88,126,166,.28);
+    color: #6f8aa4;
+    background: #0b141c;
+    white-space: nowrap;
+  }
+  .status-chip.ord {
+    color: #ffd77a;
+    border-color: rgba(232,193,74,.55);
+    background: rgba(200,160,40,.16);
+  }
+  .cancel-cmd {
+    flex: none;
+    height: 17px; padding: 0 6px;
+    font-size: 10px; line-height: 1;
+    border-radius: 0;
+    border: 1px solid rgba(200,80,60,.45);
+    background: rgba(140,40,30,.18);
+    color: #ffb4ad;
+    cursor: pointer;
+    box-shadow: none;
+  }
+  .cancel-cmd:hover { background: rgba(180,60,45,.34); border-color: var(--danger); }
+  .cancel-cmd:active { transform: none; box-shadow: none; }
+
+  /* 底部：取消信标按钮（红色） */
+  .cmd .btn.danger {
+    border-color: rgba(200,80,60,.6);
+    background: rgba(140,40,30,.22);
+    color: #ffb4ad;
+  }
+  .cmd .btn.danger:hover {
+    border-color: var(--danger);
+    background: rgba(180,60,45,.34);
+    color: #ffd0cb;
+  }
+  .cmd .btn.danger:disabled {
+    opacity: .55;
+    border-color: rgba(200,80,60,.35);
+    background: rgba(90,35,28,.22);
+    color: #c08f88;
+  }
+  .fchip {
+    flex: none;
+    height: 17px; padding: 0 6px;
+    font-size: 10px; line-height: 1;
+    border-radius: 0;
+    border: 1px solid var(--px-edge-dim, #24405a);
+    background: #0b141c;
+    color: #6f8aa4;
+    cursor: pointer;
+    box-shadow: none;
+  }
+  .fchip:hover { color: #cfe4f7; border-color: var(--px-hi, #7fc0f5); }
+  .fchip.on {
+    color: #d6ecff; border-color: var(--px-hi, #7fc0f5);
+    background: var(--px-face-sel, #1b3550);
+  }
+  .fchip:active { transform: none; box-shadow: none; }
 
   /* 底部命令区 */
   .cmd { border-top: 1px solid var(--line); padding: 10px 12px 12px; background: rgba(10,15,21,.7); }
@@ -156,37 +402,61 @@
   }
   .cmd .sel-title b { color: var(--text); font-size: 13px; font-family: var(--mono); }
   .cmd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-  .cmd-grid .wide { grid-column: 1 / -1; }
 </style>
 </head>
 <body>
 <div class="app">
 
-  <!-- ===== 顶栏 ===== -->
-  <div class="topbar">
-    <div class="brand">SimpleOpRTS <em>· 战斗指挥</em></div>
-    <div class="crumb"><a href="./UI原型-0-总览.html">原型总览</a> <span>/</span> <span class="muted">战斗指挥</span></div>
-    <div class="spacer"></div>
-    <div class="stat">指挥值 <b id="t-cmd" class="warn">816 / 900</b></div>
-    <div class="stat">预制模组 <b id="t-mod" class="mono">42</b></div>
-    <div class="stat">舰船 <b id="t-units" class="mono">186</b></div>
-    <div class="stat">时间 <b class="mono" id="t-time">04:12</b></div>
-  </div>
-
   <div class="stage">
-    <!-- ===== 战场 ===== -->
+
+    <!-- ===== 左：阵营 / 指挥信息 / 生产线 / 小队模板 ===== -->
+    <div class="col left">
+      <div class="faction-bar">
+        <span class="lbl">阵营</span>
+        <button class="fbtn on" data-f="0">蓝方</button>
+        <button class="fbtn" data-f="1">红方</button>
+      </div>
+
+      <div class="ccard">
+        <div class="panel-head">指挥信息</div>
+        <div class="sec">
+          <div class="cmdval">
+            <div class="lbl">指挥值</div>
+            <div class="big"><b id="t-cmd">816</b><em id="t-cap">/ 900</em></div>
+            <div class="bar"><i id="cmd-bar" style="width:90.7%"></i></div>
+          </div>
+          <div class="kv"><span>预制模组</span><b id="t-mod">42</b></div>
+          <div class="kv"><span>舰船</span><b id="t-units">186</b></div>
+        </div>
+      </div>
+
+      <div class="ccard">
+        <div class="panel-head">生产线 <span class="n" id="t-lines">3 条 · 效率 30</span></div>
+        <div class="sec" id="lines"></div>
+      </div>
+
+      <div class="ccard tplcard">
+        <div class="panel-head">小队模板 <span class="n" id="tpl-n">4</span></div>
+        <div class="tpl-grid" id="tpl-grid"></div>
+      </div>
+
+      <div class="foot"><a href="./UI原型-0-总览.html">← 原型总览</a> · UI 原型 1</div>
+    </div>
+
+    <!-- ===== 中：战场 ===== -->
     <div class="field" id="field">
       <div class="field-label">战术视野 · sector 7</div>
       <div class="field-hint">
-        <span><kbd>单击</kbd> 选中小队</span>
+        <span><kbd>单击标记</kbd> 选中小队</span>
+        <span><kbd>单击地面</kbd> 放置命令信标</span>
         <span><kbd>拖拽</kbd> 框选多队</span>
         <span><kbd>Shift</kbd> 追加选择</span>
       </div>
       <div class="marquee" id="marquee"></div>
     </div>
 
-    <!-- ===== 侧栏：只放小队 ===== -->
-    <div class="col">
+    <!-- ===== 右：小队 ===== -->
+    <div class="col right">
       <div class="panel-head">小队 <span class="n" id="sq-count">10 队</span></div>
       <div class="scroll" id="squad-list"></div>
 
@@ -195,13 +465,7 @@
           已选 <b id="sel-count">0</b> 队
           <span id="sel-cost" style="margin-left:auto"></span>
         </div>
-        <div class="cmd-grid">
-          <button class="btn wide primary" id="cmd-move">移动到指定位置</button>
-          <button class="btn" data-cmd="阵型">阵型</button>
-          <button class="btn" data-cmd="接敌">接敌策略</button>
-          <button class="btn" data-cmd="攻击">攻击目标</button>
-          <button class="btn" data-cmd="撤退">撤退</button>
-        </div>
+        <button class="btn danger" id="cmd-clear-beacon" style="width:100%" disabled>取消当前选中小队命令信标</button>
       </div>
     </div>
   </div>
@@ -212,44 +476,75 @@
    原型数据：形状与 core.snapshot() 对齐，方便之后接真数据。
    x / y 是战场百分比坐标（真实现里是质心世界坐标）。
    ------------------------------------------------------------- */
-const SQUADS = [
-  { key:'A',  id:'A', name:'第一突击队', scheme:'矛隼·标准',      hue:205, alive:22, max:24, hp:.68, shield:.35, x:23, y:24, state:'fight', st:'交战中', cmd:96,  frame:'f01' },
-  { key:'B',  id:'B', name:'第二突击队', scheme:'矛隼·护盾支援',  hue:178, alive:24, max:24, hp:.92, shield:.86, x:26, y:43, state:'move',  st:'推进中', cmd:96,  frame:'f17' },
-  { key:'C',  id:'C', name:'盾墙队',     scheme:'壁垒·重装',      hue:232, alive:11, max:24, hp:.41, shield:.6,  x:21, y:61, state:'fight', st:'交战中', cmd:96,  frame:'f33' },
-  { key:'D',  id:'D', name:'游击群',     scheme:'重锤·突击',      hue:158, alive:24, max:24, hp:1,   shield:1,   x:38, y:78, state:'idle',  st:'待命',   cmd:96,  frame:'f49' },
-  { key:'S0', id:'散', name:'蓝方散兵',   scheme:'矛隼·维修支援',  hue:196, alive:4,  max:6,  hp:.55, shield:.2,  x:13, y:85, state:'fight', st:'交战中', cmd:24,  frame:'f01' },
 
-  { key:'E',  id:'E', name:'红方第一队', scheme:'矛隼·标准',      hue:6,   alive:24, max:24, hp:.88, shield:.4,  x:74, y:26, state:'fight', st:'交战中', cmd:96,  frame:'f33' },
-  { key:'F',  id:'F', name:'红方第二队', scheme:'矛隼·护盾支援',  hue:19,  alive:23, max:24, hp:.79, shield:.74, x:79, y:44, state:'move',  st:'推进中', cmd:96,  frame:'f01' },
-  { key:'G',  id:'G', name:'红方盾墙队', scheme:'壁垒·重装',      hue:37,  alive:24, max:24, hp:.95, shield:.52, x:71, y:62, state:'fight', st:'交战中', cmd:96,  frame:'f17' },
-  { key:'H',  id:'H', name:'红方游击群', scheme:'重锤·突击',      hue:55,  alive:22, max:24, hp:.66, shield:.31, x:86, y:76, state:'idle',  st:'待命',   cmd:96,  frame:'f49' },
-  { key:'S1', id:'散', name:'红方散兵',   scheme:'矛隼·维修支援',  hue:14,  alive:5,  max:6,  hp:.72, shield:.18, x:90, y:88, state:'fight', st:'交战中', cmd:24,  frame:'f01' },
+/* 阵型：短名用于小队行里的切换芯片，全名放 title */
+const FORMS = {
+  standard:  { short:'标准',   full:'标准间距集群阵型' },
+  guerrilla: { short:'游击',   full:'游击阵型' },
+  dense:     { short:'密集',   full:'密集集群阵型' },
+  wide:      { short:'大间距', full:'大间距集群阵型' },
+};
+
+const SQUADS = [
+  { key:'A',  f:0, name:'第一突击队',   hue:205, alive:22, max:24, cmd:96, x:23, y:24, frame:'f01', forms:['standard','dense'],                form:'standard' },
+  { key:'B',  f:0, name:'第二突击队',   hue:178, alive:24, max:24, cmd:96, x:26, y:43, frame:'f17', forms:['dense','wide'],                   form:'dense',    beacon:{ x:37, y:40 } },
+  { key:'C',  f:0, name:'盾墙队',       hue:232, alive:11, max:24, cmd:96, x:21, y:61, frame:'f33', forms:['dense','wide'],                   form:'dense' },
+  { key:'D',  f:0, name:'游击群',       hue:158, alive:24, max:24, cmd:96, x:38, y:78, frame:'f49', forms:['guerrilla','wide'],               form:'guerrilla' },
+  { key:'S0', f:0, name:'蓝方散兵',     hue:196, alive:4,  max:6,  cmd:24, x:13, y:86, frame:'f01', forms:['guerrilla'],                      form:'guerrilla' },
+
+  { key:'E',  f:1, name:'红方第一队',   hue:6,   alive:24, max:24, cmd:96, x:74, y:26, frame:'f33', forms:['standard','dense'],               form:'standard' },
+  { key:'F',  f:1, name:'红方第二队',   hue:19,  alive:23, max:24, cmd:96, x:80, y:44, frame:'f01', forms:['dense','wide'],                   form:'dense',    beacon:{ x:66, y:36 } },
+  { key:'G',  f:1, name:'红方盾墙队',   hue:37,  alive:24, max:24, cmd:96, x:71, y:62, frame:'f17', forms:['dense','wide'],                   form:'dense' },
+  { key:'H',  f:1, name:'红方游击群',   hue:55,  alive:22, max:24, cmd:96, x:86, y:77, frame:'f49', forms:['guerrilla','wide'],               form:'guerrilla' },
+  { key:'S1', f:1, name:'红方散兵',     hue:14,  alive:5,  max:6,  cmd:24, x:90, y:89, frame:'f01', forms:['guerrilla'],                      form:'guerrilla' },
+];
+
+/* 阵营：玩家和 NPC 是平等的两个阵营，切换后整套侧栏都跟着换 */
+const FACTIONS = {
+  0: { name:'蓝方', cmd:816, cap:900, mods:42, ships:186, lines:[
+        { build:'矛隼·标准', pct:62 },
+        { build:'盾墙·重装', pct:28 },
+        { idle:true },
+      ] },
+  1: { name:'红方', cmd:742, cap:900, mods:28, ships:158, lines:[
+        { build:'游击·截击', pct:45 },
+        { idle:true },
+        { idle:true },
+      ] },
+};
+
+/* 小队模板：一键建造消耗预制模组，直接在母舰旁边成型 */
+const TPL_LIB = [
+  { name:'第一突击队', n:24, mods:48, cmd:96 },
+  { name:'盾墙队',     n:16, mods:34, cmd:96 },
+  { name:'游击群',     n:10, mods:20, cmd:40 },
+  { name:'旗舰队',     n:10, mods:44, cmd:76 },
 ];
 
 const field = document.getElementById('field');
 const marquee = document.getElementById('marquee');
 const listEl = document.getElementById('squad-list');
+const el = id => document.getElementById(id);
 
 let selected = new Set(['A']);
-// 蓝方色相 150~260（含青绿），红方 0~60
-const isAlly = s => s.hue >= 120;
+let faction = 0;                      // 当前查看/指挥的阵营
+const isAlly = s => s.hue >= 120;     // 只用于给小舰上色
+const F = () => FACTIONS[faction];
+const mySquads = () => SQUADS.filter(s => s.f === faction);
 
 /* ---------- 战场渲染 ---------- */
 
-function hue(s) { return `hsl(${s.hue}, 72%, 58%)`; }
-
 function buildField() {
-  // 先清掉上一次画的
   field.querySelectorAll('.field-ship, .marker').forEach(n => n.remove());
 
   for (const s of SQUADS) {
     // 每队画一圈小舰，位置按索引伪随机，刷新不变
     const n = Math.min(s.alive, 13);
     for (let i = 0; i < n; i++) {
-      const a = (i * 2.399) + (s.id.charCodeAt(0) % 7);
+      const a = (i * 2.399) + (s.key.charCodeAt(0) % 7);
       const r = 16 + (i % 6) * 5.5;
       const el = document.createElement('div');
-      el.className = `field-ship f${frameNo(s.frame)}`;
+      el.className = `field-ship f${s.frame.slice(1)}`;
       el.style.left = `calc(${s.x}% + ${Math.cos(a) * r}px)`;
       el.style.top  = `calc(${s.y}% + ${Math.sin(a) * r}px)`;
       el.style.transform = `translate(-50%,-50%) rotate(${(a * 57.3 + 180) % 360}deg)`;
@@ -260,62 +555,206 @@ function buildField() {
       field.appendChild(el);
     }
 
-    // 小队标记（质心）
+    // 小队标识（质心）：只给当前阵营画，敌方不显示编制名
+    if (s.f !== faction) continue;
+
     const m = document.createElement('div');
     m.className = 'marker' + (selected.has(s.key) ? ' sel' : '');
     m.dataset.key = s.key;
     m.style.left = s.x + '%';
     m.style.top = s.y + '%';
-    m.style.background = hue(s);
-    m.innerHTML = `${s.id}<span class="cnt">${s.alive}/${s.max}</span>`;
+    m.innerHTML = `<span class="nm">${s.name}</span><span class="cnt">${s.alive}/${s.max}</span>`;
     m.addEventListener('click', e => {
       e.stopPropagation();
       pick(m.dataset.key, e.shiftKey);
     });
     field.appendChild(m);
   }
+
+  renderBeacons();
 }
 
-function frameNo(f) { return f.slice(1); }
+/* 命令信标：每个小队最多 1 个（命令力只有一个点）；同一坐标只画一个图形 */
+function renderBeacons() {
+  field.querySelectorAll('.beacon, .beacon-links').forEach(n => n.remove());
 
-/* ---------- 侧栏 ---------- */
+  const withB = SQUADS.filter(s => s.f === faction && s.beacon);
+  if (!withB.length) return;
+
+  // 信标 → 小队的虚线（用 0~100 的百分比坐标系，配合 non-scaling-stroke）
+  const SVG = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(SVG, 'svg');
+  svg.setAttribute('class', 'beacon-links');
+  svg.setAttribute('viewBox', '0 0 100 100');
+  svg.setAttribute('preserveAspectRatio', 'none');
+  for (const s of withB) {
+    const line = document.createElementNS(SVG, 'line');
+    line.setAttribute('x1', s.x); line.setAttribute('y1', s.y);
+    line.setAttribute('x2', s.beacon.x); line.setAttribute('y2', s.beacon.y);
+    line.setAttribute('vector-effect', 'non-scaling-stroke');
+    line.setAttribute('class', 'beacon-line' + (selected.has(s.key) ? ' on' : ''));
+    svg.appendChild(line);
+  }
+  field.appendChild(svg);
+
+  // 同一落点的多个小队合并成一个图形
+  const groups = new Map();
+  for (const s of withB) {
+    const k = s.beacon.x + ',' + s.beacon.y;
+    if (!groups.has(k)) groups.set(k, { x: s.beacon.x, y: s.beacon.y, keys: [] });
+    groups.get(k).keys.push(s.key);
+  }
+
+  for (const g of groups.values()) {
+    const on = g.keys.some(k => selected.has(k));
+    const b = document.createElement('div');
+    b.className = 'beacon' + (on ? ' on' : '');
+    b.style.left = g.x + '%';
+    b.style.top = g.y + '%';
+    b.innerHTML = `<i></i><span class="lb">命令信标</span>`;
+    field.appendChild(b);
+  }
+}
+
+/* ---------- 右栏：小队列表 ---------- */
 
 function buildList() {
-  listEl.innerHTML = SQUADS.map(s => {
-    const key = s.key;
-    const sel = selected.has(key) ? ' sel' : '';
+  const list = mySquads();
+  listEl.innerHTML = list.map(s => {
+    const sel = selected.has(s.key) ? ' sel' : '';
+    const chips = s.forms.map(id => `
+      <button class="fchip${s.form === id ? ' on' : ''}"
+              data-key="${s.key}" data-form="${id}"
+              title="${FORMS[id].full}">${FORMS[id].short}</button>`).join('');
     return `
-      <div class="squad-row${sel}" data-key="${key}">
-        <span class="bar-k" style="background:${hue(s)}"></span>
-        <span class="key" style="background:${hue(s)}">${s.id}</span>
-        <span class="info">
-          <span class="nm">${s.name}</span>
-          <span class="sub">${s.scheme}</span>
-          <span class="bars">
-            <span class="bar hp"><i style="width:${s.hp * 100}%"></i></span>
-            <span class="bar sh"><i style="width:${s.shield * 100}%"></i></span>
-          </span>
-        </span>
-        <span class="right">
-          <span class="alive">${s.alive}<em>/${s.max}</em></span>
-          <span class="sub" style="display:block">
-            <span class="state-pill ${s.state}">${s.st}</span>
-          </span>
-        </span>
+      <div class="squad-row${sel}" data-key="${s.key}">
+        <span class="nm">${s.name}</span>
+        <span class="alive">${s.alive}<em>/${s.max}</em></span>
+        <div class="forms-row">
+          <span class="status-chip${s.beacon ? ' ord' : ''}">${s.beacon ? '受到命令' : '自动状态'}</span>
+          ${s.beacon ? `<button class="cancel-cmd" data-cancel="${s.key}" title="取消这队的命令信标">取消命令</button>` : ''}
+          <span class="spacer"></span>
+          <i>阵型</i>${chips}
+        </div>
       </div>`;
   }).join('');
 
   listEl.querySelectorAll('.squad-row').forEach(row => {
     row.addEventListener('click', e => pick(row.dataset.key, e.shiftKey));
   });
+
+  // 阵型切换：只改这队的当前阵型，不改变选择
+  listEl.querySelectorAll('.fchip').forEach(chip => {
+    chip.addEventListener('click', e => {
+      e.stopPropagation();
+      const s = SQUADS.find(x => x.key === chip.dataset.key);
+      if (!s || s.form === chip.dataset.form) return;
+      s.form = chip.dataset.form;
+      buildList();
+    });
+  });
+
+  // 单队取消命令
+  listEl.querySelectorAll('.cancel-cmd').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      clearBeacons([btn.dataset.cancel]);
+    });
+  });
+
+  el('sq-count').textContent = `${list.length} 队`;
+}
+
+/* ---------- 左栏：指挥信息 / 生产线 / 小队模板 ---------- */
+
+function renderSide() {
+  const f = F();
+
+  el('t-cmd').textContent = f.cmd;
+  el('t-cap').textContent = `/ ${f.cap}`;
+  el('t-cmd').className = f.cmd > f.cap ? 'warn' : '';
+  el('cmd-bar').style.width = Math.min(100, f.cmd / f.cap * 100) + '%';
+  el('cmd-bar').style.background = f.cmd > f.cap ? 'var(--danger)' : '';
+  el('t-mod').textContent = f.mods;
+  el('t-units').textContent = f.ships;
+
+  // 生产线：建造中 / 空闲并生产预制模组
+  el('t-lines').textContent = `${f.lines.length} 条 · 效率 30`;
+  el('lines').innerHTML = f.lines.map((ln, i) => {
+    const no = String(i + 1).padStart(2, '0');
+    if (ln.idle) {
+      return `
+        <div class="line">
+          <div class="top">
+            <span class="no">${no}</span>
+            <span class="st idle">空闲</span>
+            <span class="nm">生产预制模组</span>
+          </div>
+          <div class="bar mod"><i style="width:34%"></i></div>
+          <div class="note">生产线闲置时自动产出预制模组</div>
+        </div>`;
+    }
+    return `
+      <div class="line">
+        <div class="top">
+          <span class="no">${no}</span>
+          <span class="st build">建造中</span>
+          <span class="nm">${ln.build}</span>
+          <span class="pct">${ln.pct}%</span>
+        </div>
+        <div class="bar"><i style="width:${ln.pct}%"></i></div>
+      </div>`;
+  }).join('');
+
+  // 小队模板（双列）
+  el('tpl-n').textContent = TPL_LIB.length;
+  el('tpl-grid').innerHTML = TPL_LIB.map((t, i) => `
+    <div class="tpl-card">
+      <div class="tn" title="${t.name}">${t.name}</div>
+      <div class="tm">${t.n} 舰 · ${t.mods} 模组</div>
+      <button class="tbtn${f.mods < t.mods ? ' lack' : ''}" data-tpl="${i}">一键建造</button>
+    </div>`).join('');
+
+  el('tpl-grid').querySelectorAll('.tbtn').forEach(btn => {
+    btn.addEventListener('click', () => buildTemplate(Number(btn.dataset.tpl), btn));
+  });
+}
+
+/* 一键建造：消耗预制模组，直接在母舰旁成型 */
+function buildTemplate(i, btn) {
+  const t = TPL_LIB[i];
+  const f = F();
+  if (f.mods < t.mods) {
+    btn.textContent = '预制模组不足';
+    btn.classList.add('lack');
+    setTimeout(() => { btn.textContent = '一键建造'; renderSide(); }, 900);
+    return;
+  }
+  f.mods -= t.mods;
+  f.ships += t.n;
+  f.cmd = Math.min(f.cap, f.cmd + t.cmd);
+  renderSide();
+  const b2 = el('tpl-grid').querySelectorAll('.tbtn')[i];
+  b2.classList.add('done');
+  b2.textContent = `✓ 已建造 ${t.n} 舰`;
+  setTimeout(() => renderSide(), 1000);
 }
 
 /* ---------- 选择 ---------- */
 
 function pick(key, additive) {
-  if (!additive) selected.clear();
-  if (selected.has(key)) selected.delete(key);
-  else selected.add(key);
+  if (additive) {
+    // Shift：追加 / 取消这一队
+    if (selected.has(key)) selected.delete(key);
+    else selected.add(key);
+  } else if (selected.has(key) && selected.size === 1) {
+    // 左键点已是唯一选中的小队 → 取消选择
+    selected.clear();
+  } else {
+    // 其它情况：只选中这一队
+    selected.clear();
+    selected.add(key);
+  }
   refreshSelection();
 }
 
@@ -326,11 +765,47 @@ function refreshSelection() {
   });
   const n = selected.size;
   document.getElementById('sel-count').textContent = n;
-  let cost = 0, units = 0;
-  for (const s of SQUADS) if (selected.has(s.key)) { cost += s.cmd; units += s.alive; }
+  let cost = 0, units = 0, max = 0, beacons = 0;
+  for (const s of SQUADS) {
+    if (!selected.has(s.key)) continue;
+    cost += s.cmd; units += s.alive; max += s.max;
+    if (s.beacon) beacons++;
+  }
   document.getElementById('sel-cost').innerHTML =
-    `<span class="mono">${units} 舰 · ${cost} 指挥值</span>`;
-  document.getElementById('cmd-move').disabled = n === 0;
+    n ? `<span class="mono">${units}/${max} 舰 · ${cost} 指挥值</span>` : '';
+  el('cmd-clear-beacon').disabled = beacons === 0;
+  el('cmd-clear-beacon').textContent = beacons
+    ? `取消当前选中小队命令信标（${beacons}）`
+    : '取消当前选中小队命令信标';
+}
+
+/* ---------- 命令信标 ---------- */
+
+/** 给选中的小队在指定位置放下信标（覆盖原有信标） */
+function placeBeacon(xPct, yPct) {
+  let any = false;
+  for (const s of SQUADS) {
+    if (!selected.has(s.key)) continue;
+    s.beacon = { x: xPct, y: yPct };
+    any = true;
+  }
+  if (!any) return;
+  buildField();
+  refreshSelection();
+}
+
+/** 取消指定小队（或全部选中队）的信标 */
+function clearBeacons(keys) {
+  const list = keys || [...selected];
+  let any = false;
+  for (const s of SQUADS) {
+    if (!list.includes(s.key) || !s.beacon) continue;
+    s.beacon = null;
+    any = true;
+  }
+  if (!any) return;
+  buildField();
+  refreshSelection();
 }
 
 /* ---------- 框选 ---------- */
@@ -367,7 +842,17 @@ window.addEventListener('mouseup', e => {
   const box = drag.box;
   const additive = e.shiftKey;
   const saved = drag; drag = null;
-  if (!box || box.w < 6 || box.h < 6) { if (!additive) { selected.clear(); refreshSelection(); } return; }
+
+  // 短按（没拖动）= 单击地面：给选中的小队放命令信标
+  if (!box || box.w < 6 || box.h < 6) {
+    if (additive) return;
+    if (selected.size) {
+      const xPct = saved.x0 / saved.r.width * 100;
+      const yPct = saved.y0 / saved.r.height * 100;
+      placeBeacon(xPct, yPct);
+    }
+    return;
+  }
 
   if (!additive) selected.clear();
   document.querySelectorAll('.marker').forEach(m => {
@@ -380,20 +865,37 @@ window.addEventListener('mouseup', e => {
   refreshSelection();
 });
 
-/* ---------- 命令按钮：原型只给反馈 ---------- */
+/* ---------- 底部按钮：取消选中队的命令信标 ---------- */
 
-document.querySelectorAll('[data-cmd]').forEach(btn => {
+el('cmd-clear-beacon').addEventListener('click', () => clearBeacons(null));
+
+/* ---------- 键盘：Esc 取消选择 ---------- */
+
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (selected.size) { selected.clear(); refreshSelection(); }
+  }
+});
+
+/* ---------- 阵营切换 ---------- */
+
+document.querySelectorAll('.fbtn').forEach(btn => {
   btn.addEventListener('click', () => {
-    if (!selected.size) return;
-    const n = selected.size;
-    btn.textContent = `${btn.dataset.cmd} ✓`;
-    setTimeout(() => { btn.textContent = btn.dataset.cmd; }, 700);
+    const f = Number(btn.dataset.f);
+    if (f === faction) return;
+    faction = f;
+    selected.clear();             // 换阵营后不能带着上一个阵营的选择
+    document.querySelectorAll('.fbtn').forEach(b => b.classList.toggle('on', Number(b.dataset.f) === faction));
+    buildField();
+    renderSide();
+    refreshSelection();
   });
 });
 
 /* ---------- 启动 ---------- */
 buildField();
 buildList();
+renderSide();
 refreshSelection();
 </script>
 </body>
