@@ -16,6 +16,7 @@ import {
   UNIT_PAD, DEFAULT_HIT_R, SpatialDebug, SpatialStats, sweptHit,
 } from "./spatial.js";
 import { WEAPONS, WEAPON_IDS, weaponRange } from "./weapons.js";
+import { rand } from "./rng.js";
 
 export { WEAPONS, WEAPON_IDS };
 
@@ -160,8 +161,9 @@ function guideAngle(p, units, squads, grid) {
  * 瞬时武器（激光 / 轨道炮）
  * 沿射线扫一条胶囊，按命中先后排序，取前 maxHits 个。
  */
-function fireHitscan(u, w, ux, uy, range, myF, hue, tgt, units, squads, hits, fx, grid) {
-  const x0 = u.x, y0 = u.y;
+function fireHitscan(u, w, ux, uy, range, myF, hue, tgt, units, squads, hits, fx, grid,
+                      ox = u.x, oy = u.y) {
+  const x0 = ox, y0 = oy;
   const x1 = x0 + ux * range, y1 = y0 + uy * range;
   const cr = w.hit.contactR;
 
@@ -200,7 +202,7 @@ function fireHitscan(u, w, ux, uy, range, myF, hue, tgt, units, squads, hits, fx
   if (w.fx === "beam") {
     fx.push({
       type: "beam", faction: myF, hue,
-      x1: u.x, y1: u.y, x2: tgt.x, y2: tgt.y,
+      x1: ox, y1: oy, x2: tgt.x, y2: tgt.y,
       life: 0.09, max: 0.09,
     });
   } else if (w.fx === "rayshot") {
@@ -208,11 +210,125 @@ function fireHitscan(u, w, ux, uy, range, myF, hue, tgt, units, squads, hits, fx
       type: "rayshot", faction: myF, hue,
       x1: x0, y1: y0, x2: x1, y2: y1,
       aim: RAY_AIM, fly: RAY_FLY,
-      seed: Math.random() * Math.PI * 2,
+      seed: rand() * Math.PI * 2,
       life: RAY_AIM + RAY_FLY + RAY_HOLD,
       max: RAY_AIM + RAY_FLY + RAY_HOLD,
     });
   }
+}
+
+/**
+ * 单个武器槽位的一帧结算。返回 true 表示这一帧真的打出了一发。
+ *
+ * 状态全部存在 st 里（cd / burstLeft / burstTimer / target），
+ * 所以同一条船的两个槽位互不影响 —— 一门慢炮不会拖住另一门快炮。
+ */
+function fireSlot(u, st, dt, units, squads, projectiles, hits, fx, grid, myF, hue) {
+  const w = WEAPONS[st.id];
+  if (!w) return false;
+
+  const rate = u.fireRate || 1;
+  const range = weaponRange(w);
+  const shots = w.fire.burst > 0 ? (w.fire.burst | 0) : 1;
+
+  // 炮口位置：船体局部坐标 [+x 前, +y 左]，按朝向旋转；没有就退回船心
+  let ox = u.x, oy = u.y;
+  if (st.pos) {
+    const f = (u.vx || u.vy) ? Math.atan2(u.vy, u.vx) : 0;
+    const ca = Math.cos(f), sa = Math.sin(f);
+    ox = u.x + st.pos[0] * ca - st.pos[1] * sa;
+    oy = u.y + st.pos[0] * sa + st.pos[1] * ca;
+  }
+
+  // ---- 决定这一帧要不要开一枪，以及打谁 ----
+  let tgt;
+
+  if (st.burstLeft > 0) {
+    // 一轮还没打完：继续朝同一个目标按短装填间隔一发一发地打
+    tgt = st.target;
+    if (!tgt || tgt.hp <= 0) {          // 目标没了就中止这一轮
+      st.burstLeft = 0;
+      st.target = null;
+      st.cd = w.fire.cd * rate;
+      return false;
+    }
+    st.burstTimer -= dt;
+    if (st.burstTimer > 0) return false;   // 还在等下一发
+  } else {
+    if (st.cd > 0) { st.cd -= dt; return false; }
+
+    // 锁定射程内最近的敌人
+    // （保持全量扫描：每帧只发生几次，见 05-空间索引层.md §5.5）
+    tgt = null;
+    let bd = range * range;
+    for (let j = 0; j < units.length; j++) {
+      const o = units[j];
+      if (o.hp <= 0) continue;
+      if (squads[o.squad].faction === myF) continue;
+      const dx = o.x - u.x, dy = o.y - u.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bd) { bd = d2; tgt = o; }
+    }
+    if (!tgt) return false;
+
+    st.burstLeft = shots;
+    st.target = tgt;
+    st.burstTimer = 0;
+  }
+
+  // ---- 打这一枪（每帧每槽最多一发） ----
+  const dx = tgt.x - u.x, dy = tgt.y - u.y;
+  const baseAng = Math.atan2(dy, dx);
+  const fanRad = (w.fire.fan || 0) * Math.PI / 180;
+  const idx = shots - st.burstLeft;                 // 本轮第几发（0 起）
+  const ang = baseAng + spreadOffset(idx, shots, fanRad);
+
+  if (w.delivery === "hitscan") {
+    fireHitscan(u, w, Math.cos(ang), Math.sin(ang),
+                range, myF, hue, tgt, units, squads, hits, fx, grid, ox, oy);
+  } else {
+    // 飞行弹：朝「当前瞄准点」发射；tracking 的会自己拐过去
+    const spd = w.travel.speed;
+    projectiles.push({
+      x: ox, y: oy,
+      vx: Math.cos(ang) * spd,
+      vy: Math.sin(ang) * spd,
+      travelled: 0,
+      maxDist: range,                   // = speed × lifetime
+      dmg: w.impact.dmg,
+      blastR: w.impact.blastR,
+      blastDmg: w.impact.blastDmg,
+      pierce: w.impact.pierceShield,
+      faction: myF,
+      hue,
+      contactR: w.hit.contactR,
+
+      // 制导
+      turnRate: w.travel.turnRate || 0,
+      guideR: w.travel.guideR || 0,
+
+      // 视觉
+      style: w.trail || "smoke",
+      path: w.trail === "line" ? [ox, oy] : null,
+      seed: rand() * Math.PI * 2,   // 烟迹扰动的相位
+    });
+
+    if (fx) fx.push({
+      type: "muzzle", faction: myF, hue,
+      x: ox, y: oy,
+      life: 0.12, max: 0.12,
+    });
+  }
+
+  // ---- 一轮的记账 ----
+  st.burstLeft--;
+  if (st.burstLeft > 0) {
+    st.burstTimer = (w.fire.burstDelay || 0) * rate;   // 短装填：等下一发
+  } else {
+    st.cd = w.fire.cd * rate;                          // 一轮打完，进冷却
+    st.target = null;
+  }
+  return true;
 }
 
 /**
@@ -234,108 +350,25 @@ export function stepWeapons(units, squads, projectiles, dt, hits, now = 0, fx = 
   }
 
   // ---------- 1. 开火 ----------
+  // 每个武器槽位是一套独立的状态（冷却 / 连发 / 锁定目标），
+  // 所以「装两门炮」就是每帧跑两遍，而不是共用一套节奏。
   for (let i = 0; i < n; i++) {
     const u = units[i];
     if (u.hp <= 0) continue;
 
-    const w = WEAPONS[u.weapon];
-    if (!w) continue;
+    const slots = u.weapons;
+    if (!slots || slots.length === 0) continue;
 
     const myF = squads[u.squad].faction;
     const hue = squads[u.squad].hue;
-    const range = weaponRange(w);
-    const shots = w.fire.burst > 0 ? (w.fire.burst | 0) : 1;
 
-    // ---- 决定这一帧要不要开一枪，以及打谁 ----
-    let tgt;
-
-    if (u.burstLeft > 0) {
-      // 一轮还没打完：继续朝同一个目标按短装填间隔一发一发地打
-      tgt = u.burstTarget;
-      if (!tgt || tgt.hp <= 0) {          // 目标没了就中止这一轮
-        u.burstLeft = 0;
-        u.burstTarget = null;
-        u.cd = w.fire.cd;
-        continue;
+    let fired = false;
+    for (let s = 0; s < slots.length; s++) {
+      if (fireSlot(u, slots[s], dt, units, squads, projectiles, hits, fx, grid, myF, hue)) {
+        fired = true;
       }
-      u.burstTimer -= dt;
-      if (u.burstTimer > 0) continue;     // 还在等下一发
-    } else {
-      if (u.cd > 0) { u.cd -= dt; continue; }
-
-      // 锁定射程内最近的敌人
-      // （保持全量扫描：每帧只发生几次，见 05-空间索引层.md §5.5）
-      tgt = null;
-      let bd = range * range;
-      for (let j = 0; j < n; j++) {
-        const o = units[j];
-        if (o.hp <= 0) continue;
-        if (squads[o.squad].faction === myF) continue;
-        const dx = o.x - u.x, dy = o.y - u.y;
-        const d2 = dx * dx + dy * dy;
-        if (d2 < bd) { bd = d2; tgt = o; }
-      }
-      if (!tgt) continue;
-
-      u.burstLeft = shots;
-      u.burstTarget = tgt;
-      u.burstTimer = 0;
     }
-
-    // ---- 打这一枪（每帧最多一发） ----
-    u.lastFire = now;          // 供 UI 统计"最近 1 秒开过火"
-
-    const dx = tgt.x - u.x, dy = tgt.y - u.y;
-    const baseAng = Math.atan2(dy, dx);
-    const fanRad = (w.fire.fan || 0) * Math.PI / 180;
-    const idx = shots - u.burstLeft;                 // 本轮第几发（0 起）
-    const ang = baseAng + spreadOffset(idx, shots, fanRad);
-
-    if (w.delivery === "hitscan") {
-      fireHitscan(u, w, Math.cos(ang), Math.sin(ang),
-                  range, myF, hue, tgt, units, squads, hits, fx, grid);
-    } else {
-      // 飞行弹：朝「当前瞄准点」发射；tracking 的会自己拐过去
-      const spd = w.travel.speed;
-      projectiles.push({
-        x: u.x, y: u.y,
-        vx: Math.cos(ang) * spd,
-        vy: Math.sin(ang) * spd,
-        travelled: 0,
-        maxDist: range,                   // = speed × lifetime
-        dmg: w.impact.dmg,
-        blastR: w.impact.blastR,
-        blastDmg: w.impact.blastDmg,
-        pierce: w.impact.pierceShield,
-        faction: myF,
-        hue,
-        contactR: w.hit.contactR,
-
-        // 制导
-        turnRate: w.travel.turnRate || 0,
-        guideR: w.travel.guideR || 0,
-
-        // 视觉
-        style: w.trail || "smoke",
-        path: w.trail === "line" ? [u.x, u.y] : null,
-        seed: Math.random() * Math.PI * 2,   // 烟迹扰动的相位
-      });
-
-      if (fx) fx.push({
-        type: "muzzle", faction: myF, hue,
-        x: u.x, y: u.y,
-        life: 0.12, max: 0.12,
-      });
-    }
-
-    // ---- 一轮的记账 ----
-    u.burstLeft--;
-    if (u.burstLeft > 0) {
-      u.burstTimer = w.fire.burstDelay || 0;   // 短装填：等下一发
-    } else {
-      u.cd = w.fire.cd;                        // 一轮打完，进冷却
-      u.burstTarget = null;
-    }
+    if (fired) u.lastFire = now;      // 供 UI 统计"最近 1 秒开过火"
   }
 
   // ---------- 2. 弹丸推进 + 飞行中碰撞 + 起爆 ----------

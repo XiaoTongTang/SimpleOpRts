@@ -50,6 +50,14 @@ export function createBridge(core, store, opts = {}) {
       core.setViewport(width, height);
     },
 
+    /**
+     * 只读查询通道（不写状态）。
+     * UI 用它在「真正发命令之前」问一句合不合法，比如装配预览。
+     */
+    query(cmd) {
+      return core.query(cmd);
+    },
+
     pushNow: push
   };
 }
@@ -60,6 +68,11 @@ function describe(cmd) {
     case "setPaused": return cmd.value ? "已暂停" : "继续";
     case "reset": return "已重开";
     case "setParam": return `参数 ${cmd.key} = ${cmd.value}`;
+    case "createShip": return "方案已创建";
+    case "renameShip": return "方案已改名";
+    case "duplicateShip": return "方案已复制";
+    case "deleteShip": return "方案已删除";
+    case "setShipFit": return "装配已更新";
     default: return "已应用";
   }
 }

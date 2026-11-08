@@ -169,8 +169,9 @@ export function drawFx(ctx, fx) {
       ctx.stroke();
       ctx.restore();
 
-    } else if (e.type === "shieldlink") {
-      // 充能器 → 目标盾环 的一条青色弧线
+    } else if (e.type === "supportlink") {
+      // 支援能力 → 目标 的一条弧线（蓝青 = 护盾充能，绿 = 维修）
+      const hueS = e.hue ?? 195;
       const dx = e.x2 - e.x1, dy = e.y2 - e.y1;
       const len = Math.hypot(dx, dy) || 1;
       const ux = dx / len, uy = dy / len;
@@ -197,7 +198,7 @@ export function drawFx(ctx, fx) {
       ctx.beginPath();
       ctx.moveTo(sx, sy);
       ctx.quadraticCurveTo(cx2, cy2, ex, ey);
-      ctx.strokeStyle = "hsla(200,95%,70%," + (0.18 * t) + ")";
+      ctx.strokeStyle = "hsla(" + hueS + ",95%,70%," + (0.18 * t) + ")";
       ctx.lineWidth = 3.6;
       ctx.stroke();
 
@@ -205,7 +206,7 @@ export function drawFx(ctx, fx) {
       ctx.beginPath();
       ctx.moveTo(sx, sy);
       ctx.quadraticCurveTo(cx2, cy2, ex, ey);
-      ctx.strokeStyle = "hsla(195,100%,84%," + (0.65 * t) + ")";
+      ctx.strokeStyle = "hsla(" + hueS + ",100%,84%," + (0.65 * t) + ")";
       ctx.lineWidth = 1.1;
       ctx.stroke();
 
@@ -214,23 +215,8 @@ export function drawFx(ctx, fx) {
       // 落在盾环上的亮点
       ctx.beginPath();
       ctx.arc(ex, ey, 2.0, 0, Math.PI * 2);
-      ctx.fillStyle = "hsla(195,100%,90%," + (0.7 * t) + ")";
+      ctx.fillStyle = "hsla(" + hueS + ",100%,90%," + (0.7 * t) + ")";
       ctx.fill();
-      ctx.restore();
-
-    } else if (e.type === "shieldup") {
-      // 护盾成型：外环向内收拢，最后与护盾环重合（青色）
-      const p = 1 - t;                                   // 0 → 1
-      const r = e.r0 + (e.r1 - e.r0) * p;
-      ctx.save();
-      ctx.globalCompositeOperation = "lighter";
-
-      // 主环
-      ctx.beginPath();
-      ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
-      ctx.strokeStyle = "hsla(200,95%,74%," + (0.45 * t) + ")";
-      ctx.lineWidth = 1.6;
-      ctx.stroke();
       ctx.restore();
 
     } else if (e.type === "muzzle") {

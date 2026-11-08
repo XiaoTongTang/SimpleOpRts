@@ -16,6 +16,8 @@ export const gameStore = createStore({
   snap: null,
   /** 当前选中的小队 id（纯 UI 状态，core 不需要知道） */
   selectedId: 0,
+  /** 当前正在编辑的舰船方案 id（纯 UI 状态） */
+  selectedShipId: null,
   /** 帧率，只用于显示 */
   fps: 0,
   /** 最近一条提示：{ kind: "ok" | "error", text, at } */
@@ -33,6 +35,10 @@ export const actions = {
 
   select(id) {
     gameStore.setState({ selectedId: id });
+  },
+
+  selectShip(id) {
+    gameStore.setState({ selectedShipId: id });
   },
 
   message(kind, text) {

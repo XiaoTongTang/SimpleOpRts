@@ -8,8 +8,15 @@
  *   travel    飞行参数  hitscan 只要 range；projectile 要 speed + lifetime（+ 可选 turnRate）
  *   hit       命中几何  contactR（打多大） + maxHits（能打几个）
  *   impact    命中效果  dmg / blastR / blastDmg / pierceShield
- *   fire      开火节奏  cd / burst / burstDelay / fan / energy
+ *   fire      开火节奏  cd / burst / burstDelay / fan
  *   trail     拖尾样式  "smoke"（烟团，鱼雷）| "line"（弯曲线，导弹）| "streak"（细亮线，链炮）
+ *
+ * 构筑用字段（与打击逻辑无关，只有装配校验与推荐算法读它们）：
+ *   size      可装进多大的武器槽  "S" | "M" | "L"
+ *   capacity  占用船体承载量
+ *   buildTime 附加建造工时（秒）
+ *   command   附加指挥值（默认 0，见设计文档 D1）
+ *   mountable 是否能被玩家装配（防御塔专用武器为 false）
  *
  * 设计见 design/261101_1武器系统改造/03-武器参数表.md
  *
@@ -22,37 +29,37 @@ export const WEAPONS = {
   railgun: {
     id: "railgun",
     name: "轨道炮",
-    size: "M", capacity: 8, buildTime: 3.0,
+    size: "M", capacity: 5, buildTime: 2.3, command: 0,
     delivery: "hitscan",
     travel: { range: 250 },
     hit:    { contactR: 14, maxHits: 3 },        // 最多打穿 3 个单位
     impact: { dmg: 20, blastR: 0, blastDmg: 0, pierceShield: true },
-    fire:   { cd: 2.6, burst: 1, fan: 0, energy: 0 },
+    fire:   { cd: 2.6, burst: 1, fan: 0 },
     fx:     "rayshot",
   },
 
   laser: {
     id: "laser",
     name: "激光",
-    size: "S", capacity: 3, buildTime: 1.2,
+    size: "S", capacity: 3, buildTime: 1.0, command: 0,
     delivery: "hitscan",
     travel: { range: 300 },
     hit:    { contactR: 2, maxHits: 1 },         // 点杀，只打锁定的那个
     impact: { dmg: 24, blastR: 0, blastDmg: 0, pierceShield: false },
-    fire:   { cd: 2.0, burst: 1, fan: 0, energy: 0 },
+    fire:   { cd: 2.0, burst: 1, fan: 0 },
     fx:     "beam",
   },
 
   torpedo: {
     id: "torpedo",
     name: "鱼雷",
-    size: "M", capacity: 7, buildTime: 2.6,
+    size: "M", capacity: 5, buildTime: 1.8, command: 0,
     delivery: "projectile",
     // 射程 = speed × lifetime = 210 × 1.81 ≈ 380
     travel: { speed: 210, lifetime: 1.81, turnRate: 0 },   // 不追踪，直飞
     hit:    { contactR: 5, maxHits: 1 },         // 碰到第一个就起爆
     impact: { dmg: 18, blastR: 55, blastDmg: 18, pierceShield: false },
-    fire:   { cd: 6.0, burst: 1, fan: 0, energy: 0 },
+    fire:   { cd: 6.0, burst: 1, fan: 0 },
     fx:     "muzzle",
     trail:  "smoke",                             // 烟团拖尾
   },
@@ -60,7 +67,7 @@ export const WEAPONS = {
   missile: {
     id: "missile",
     name: "导弹",
-    size: "S", capacity: 5, buildTime: 1.8,
+    size: "S", capacity: 5, buildTime: 2.0, command: 0,
     delivery: "projectile",
     // 射程 = 240 × 2 = 480
     // turnRate 决定最小转弯半径 = speed / turnRate = 96px
@@ -68,7 +75,7 @@ export const WEAPONS = {
     travel: { speed: 240, lifetime: 2, turnRate: 2.5, guideR: 180 },
     hit:    { contactR: 4, maxHits: 1 },
     impact: { dmg: 40, blastR: 24, blastDmg: 24, pierceShield: false },
-    fire:   { cd: 2.6, burst: 1, fan: 0, energy: 0 },
+    fire:   { cd: 2.6, burst: 1, fan: 0 },
     fx:     "muzzle",
     trail:  "line",                              // 弯曲线状拖尾
   },
@@ -76,7 +83,7 @@ export const WEAPONS = {
   chaingun: {
     id: "chaingun",
     name: "突击链炮",
-    size: "S", capacity: 4, buildTime: 1.6,
+    size: "S", capacity: 4, buildTime: 1.4, command: 0,
     delivery: "projectile",
     // 射程 = 800 × 0.5 = 400
     travel: { speed: 700, lifetime: 0.5 },
@@ -85,7 +92,7 @@ export const WEAPONS = {
     // 一轮 4 发，一发一发地打，间隔 0.12s（整轮 0.36s）
     // 4 发按 3° 扇形铺开：-1.5° / -0.5° / +0.5° / +1.5°
     // cd 从最后一发起算
-    fire:   { cd: 2.0, burst: 4, burstDelay: 0.12, fan: 3, energy: 0 },
+    fire:   { cd: 2.0, burst: 4, burstDelay: 0.12, fan: 3 },
     fx:     "muzzle",
     trail:  "streak",                            // 线形射弹（细亮线），命中有泛白闪光
   },
@@ -93,14 +100,14 @@ export const WEAPONS = {
   towermissile: {
     id: "towermissile",
     name: "防御塔用导弹",
-    size: "L", capacity: 0, buildTime: 0, mountable: false,   // 防御塔专用，玩家装不上去
+    size: "L", capacity: 0, buildTime: 0, command: 0, mountable: false,   // 防御塔专用，玩家装不上去
     delivery: "projectile",
     // 射程 = 240 × 2 = 480，与普通导弹完全一致
     travel: { speed: 240, lifetime: 2, turnRate: 2.5, guideR: 180 },
     hit:    { contactR: 10, maxHits: 1 },
     impact: { dmg: 40, blastR: 24, blastDmg: 24, pierceShield: false },
     // 与普通导弹唯一的区别：装填只要 1 秒
-    fire:   { cd: 1.0, burst: 4, burstDelay: 0.12, fan: 20, energy: 0 },
+    fire:   { cd: 1.0, burst: 4, burstDelay: 0.12, fan: 20 },
     fx:     "muzzle",
     trail:  "line",
   },

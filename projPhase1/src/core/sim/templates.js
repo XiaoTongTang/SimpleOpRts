@@ -26,7 +26,7 @@ export const TEMPLATES = [
       rRep: 17, rOri: 46, rAtt: 86,
       wSep: 1.50, wAli: 0.95, wCoh: 1.15,
       r4: 80, r5: 300, wSeek: 1.50, wThreat: 1.50,
-      members: 25, hp: 80, regen: 3.0, chargers: 0
+      members: 25, hp: 80, regen: 3.0
     }
   },
   {
@@ -43,7 +43,7 @@ export const TEMPLATES = [
       rRep: 30, rOri: 58, rAtt: 200,
       wSep: 1.40, wAli: 0.70, wCoh: 0.7,
       r4: 60, r5: 280, wSeek: 1.60, wThreat: 1.70,
-      members: 12, hp: 290, regen: 7, chargers: 12
+      members: 12, hp: 290, regen: 7
     }
   },
   {
@@ -60,7 +60,7 @@ export const TEMPLATES = [
       rRep: 34, rOri: 64, rAtt: 120,
       wSep: 1.00, wAli: 0.50, wCoh: 0.45,
       r4: 200, r5: 350, wSeek: 0.85, wThreat: 1.20,
-      members: 12, hp: 90, regen: 2.0, chargers: 0
+      members: 12, hp: 90, regen: 2.0
     }
   },
   {
@@ -77,7 +77,7 @@ export const TEMPLATES = [
       rRep: 22, rOri: 50, rAtt: 92,
       wSep: 1.30, wAli: 1.00, wCoh: 0.80,
       r4: 50, r5: 320, wSeek: 2.00, wThreat: 1.30,
-      members: 15, hp: 40, regen: 2.0, chargers: 4
+      members: 15, hp: 40, regen: 2.0
     }
   },
   {
@@ -94,7 +94,7 @@ export const TEMPLATES = [
       rRep: 35, rOri: 60, rAtt: 104,
       wSep: 1.05, wAli: 0.50, wCoh: 1.45,
       r4: 55, r5: 270, wSeek: 1.00, wThreat: 2.00,
-      members: 15, hp: 320, regen: 9, chargers: 5
+      members: 15, hp: 320, regen: 9
     }
   },
   {
@@ -111,7 +111,7 @@ export const TEMPLATES = [
       rRep: 26, rOri: 56, rAtt: 110,
       wSep: 1.05, wAli: 0.55, wCoh: 0.50,
       r4: 180, r5: 340, wSeek: 0.75, wThreat: 1.30,
-      members: 12, hp: 70, regen: 1.5, chargers: 0
+      members: 12, hp: 70, regen: 1.5
     }
   }
 ];
@@ -156,6 +156,6 @@ export const LOOSE_SQUAD = {
     rRep: 18, rOri: 46, rAtt: 92,
     wSep: 1.40, wAli: 0.85, wCoh: 0.95,
     r4: 110, r5: 320, wSeek: 1.10, wThreat: 1.55,
-    members: 0, hp: 50, regen: 2.0, chargers: 2
+    members: 0, hp: 50, regen: 2.0
   }
 };

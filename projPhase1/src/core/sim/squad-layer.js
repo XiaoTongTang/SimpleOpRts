@@ -11,6 +11,8 @@
  * 层级关系：L3 指挥层 → 【本层】 → L1 群体层
  */
 
+import { rand } from "./rng.js";
+
 // ---------------------------------------------------------------
 // 每队独立的 Couzin 参数定义
 // [key, 显示小数位, 默认值]
@@ -24,7 +26,9 @@ export const P_DEFS = [
   ["rRep", 0, 24], ["rOri", 0, 52], ["rAtt", 0, 96],
   ["members", 0, 24],
   // —— 战斗（只被 defense-system 读取，与移动完全解耦）——
-  ["hp", 0, 100], ["regen", 2, 2.00], ["chargers", 0, 2]
+  // 护盾充能/维修不在参数表里：那是 support-system 读的 abilities，来自装配
+  ["hp", 0, 100], ["regen", 2, 2.00],
+  ["maxShield", 0, 0], ["shieldRegen", 2, 0.0]
 ];
 
 export function makeParams() {
@@ -44,14 +48,7 @@ export const GLOBAL_DEFS = [
   ["drag", 2, 0.30],
   ["stallSpeed", 0, 60],
   ["stallAccel", 0, 100],
-  ["arriveR", 0, 46],
-  // 护盾充能器
-  ["shieldHp", 0, 80],
-  ["chargerRange", 0, 140],
-  ["chargerCd", 1, 2.5],
-  ["energyMax", 0, 100],
-  ["energyCost", 0, 25],
-  ["energyRegen", 1, 8.0]
+  ["arriveR", 0, 46]
 ];
 
 // ---------------------------------------------------------------
@@ -109,7 +106,7 @@ export function addSquad(squads, def, faction) {
 export function makeSquads() {
   return SQUAD_DEF.map((d, i) => {
     const sq = makeSquad(d, i, d.faction);
-    if (d.loose) { sq.p.members = 6; sq.p.chargers = 0; }
+    if (d.loose) { sq.p.members = 6; }
     return sq;
   });
 }
@@ -179,8 +176,8 @@ export function resizeSquad(units, squads, id, target, W, H) {
     const cx = sq.cn ? sq.cx : W * (sq.faction === 0 ? 0.24 : 0.76);
     const cy = sq.cn ? sq.cy : H * 0.5;
     for (let k = cur; k < target; k++) {
-      const a = Math.random() * Math.PI * 2;
-      const r = Math.sqrt(Math.random()) * 55;
+      const a = rand() * Math.PI * 2;
+      const r = Math.sqrt(rand()) * 55;
       units.push({
         x: cx + Math.cos(a) * r,
         y: cy + Math.sin(a) * r,

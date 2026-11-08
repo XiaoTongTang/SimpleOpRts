@@ -47,7 +47,16 @@ export function drawUnits(ctx, units, squads) {
     drawUnitGlyph(ctx, u.x, u.y, Math.atan2(u.vy, u.vx), 1, unitColor(u, squads));
   }
 
-  // 护盾环 + 充能器标记 + 血条
+  // 护盾环 + 支援模块标记 + 血条
+  // 支援标记按小队预计算一次：同一队里所有舰船的装配相同
+  const hasShieldAura = [];
+  if (squads) {
+    for (let i = 0; i < squads.length; i++) {
+      const list = squads[i]?.p?.abilities;
+      hasShieldAura[i] = !!list && list.some(a => a.resource === "shield");
+    }
+  }
+
   for (const u of units) {
     if (u.base || u.tower) continue;
     if (u.shield > 0) {
@@ -57,7 +66,7 @@ export function drawUnits(ctx, units, squads) {
       ctx.lineWidth = 1.2;
       ctx.stroke();
     }
-    if (u.charger) {
+    if (hasShieldAura[u.squad]) {
       ctx.beginPath();
       ctx.arc(u.x, u.y + 8.5, 1.9, 0, Math.PI * 2);
       ctx.fillStyle = "rgba(255,210,110,.95)";

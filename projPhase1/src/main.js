@@ -9,26 +9,29 @@
  */
 
 import { GameCore } from "./core/core.js";
-import { HULLS } from "./core/state.js";
-import { WEAPON_IDS } from "./core/sim/weapons.js";
 import { createCanvas2DRenderer } from "./render/render-canvas2d.js";
 import { gameStore, actions } from "./store/gameStore.js";
+import { loadShips, saveShips } from "./store/persist.js";
 import { createBridge } from "./bridge.js";
 import { mountUI } from "./ui/ui.js";
 
 const FIXED = 1 / 60;
 
-// 只有玩家能用的舰船武器（towermissile 属于防御塔，不给小队用）
-const SHIP_WEAPONS = WEAPON_IDS.filter(id => id !== "towermissile");
-
 const cvs = document.getElementById("c");
 const renderer = createCanvas2DRenderer(cvs);
 
-const core = new GameCore({ width: window.innerWidth, height: window.innerHeight });
+// 先读方案库：玩家的设计跨局保留，重开不清空
+const core = new GameCore({
+  width: window.innerWidth,
+  height: window.innerHeight,
+  ships: loadShips()
+});
 const bridge = createBridge(core, gameStore, { hz: 10 });
 
+let lastShipRev = core.shipRev;
+
 renderer.resize(window.innerWidth, window.innerHeight);
-mountUI({ store: gameStore, bridge, hulls: HULLS, weapons: SHIP_WEAPONS });
+mountUI({ store: gameStore, bridge });
 
 window.addEventListener("resize", () => {
   const w = window.innerWidth, h = window.innerHeight;
@@ -68,6 +71,12 @@ function frame(now) {
 
   // ---- 3. 快照（节流推给 UI） ----
   bridge.tick(dt);
+
+  // ---- 4. 方案库有改动就落盘 ----
+  if (core.shipRev !== lastShipRev) {
+    lastShipRev = core.shipRev;
+    saveShips(core.ships);
+  }
 
   // ---- FPS ----
   fpsAcc += dt; fpsFrames++;
