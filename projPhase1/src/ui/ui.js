@@ -18,10 +18,7 @@
 
 /** 阵型短名：只用于按钮上的字 */
 const FORM_SHORT = {
-  "form.standard": "标准",
-  "form.guerrilla": "游击",
-  "form.dense": "密集",
-  "form.wide": "大间距"
+  "form.default": "默认"
 };
 
 export function mountUI({ store, bridge }) {
@@ -186,6 +183,8 @@ export function mountUI({ store, bridge }) {
   // ----------------------------------------------------------------
 
   // 已解散的队伍也留在列表里（标记「解」），否则解散了就再也吸收不回来
+  // 本阵营的小队。
+  // 右栏列表、框选、战场名牌都不该再看到它。编制数据仍在 core 里（可以再吸收回来）。
   const mySquads = snap => (snap?.squads || []).filter(s => s.faction === faction);
 
   function pick(id, additive) {
@@ -266,6 +265,7 @@ export function mountUI({ store, bridge }) {
     let mod;
     if (kind === "ship") mod = await import("./screens/ship-design.js");
     else if (kind === "squad") mod = await import("./screens/squad-build.js");
+    else if (kind === "form") mod = await import("./screens/formation.js");
     else return;
 
     const catalog = bridge.query({ type: "catalog" }) || { hulls: [], weapons: [], plugins: [] };
@@ -275,9 +275,15 @@ export function mountUI({ store, bridge }) {
 
     if (!pausedBefore) bridge.run({ type: "setPaused", value: true });
 
+    const MOUNT = {
+      ship: "mountShipDesign",
+      squad: "mountSquadBuild",
+      form: "mountFormation"
+    };
+
     screen = {
       kind,
-      api: mod[kind === "ship" ? "mountShipDesign" : "mountSquadBuild"](
+      api: mod[MOUNT[kind]](
         host, { store, bridge, catalog, onBack: closeScreen })
     };
   }
@@ -527,7 +533,7 @@ export function mountUI({ store, bridge }) {
     const mine = mySquads(snap);
     const listSig = mine.map(s =>
       [s.id, s.name, s.alive, s.count, s.form, s.formations.join(","),
-       s.goal ? "g" : "-", s.active === false ? "d" : "", selected.has(s.id) ? "s" : ""].join(":")
+       s.goal ? "g" : "-", selected.has(s.id) ? "s" : ""].join(":")
     ).join("|");
     if (listSig !== lastSig.list) {
       lastSig.list = listSig;
@@ -539,9 +545,9 @@ export function mountUI({ store, bridge }) {
                   title="${FORM_SHORT[f] || f}">${FORM_SHORT[f] || f}</button>`).join("");
         const pool = s.loose;
         return `
-          <div class="squad-row${sel}${s.alive === 0 || s.active === false ? " dead" : ""}"
-               data-key="${s.id}"${s.active === false ? ' data-dead="1"' : ""}>
-            <span class="nm">${squadName(s)}${s.active === false ? " · 解" : ""}</span>
+          <div class="squad-row${sel}${s.alive === 0 ? " dead" : ""}"
+               data-key="${s.id}">
+            <span class="nm">${squadName(s)}</span>
             <span class="alive">${num}</span>
             <div class="forms-row">
               <span class="status-chip${s.goal ? " ord" : ""}">${s.goal ? "受到命令" : "自动状态"}</span>
@@ -577,11 +583,10 @@ export function mountUI({ store, bridge }) {
       listEl.querySelectorAll("[data-disband]").forEach(btn => {
         btn.addEventListener("click", e => {
           e.stopPropagation();
-          const id = Number(btn.dataset.disband);
-          const s = mine.find(x => x.id === id);
-          if (s && confirm(`解散「${squadName(s)}」？舰船会退回散兵池。`)) {
-            bridge.run({ type: "disband", squadId: id });
-          }
+          // 解散 = 删除实例，不做二次确认
+          bridge.run({ type: "disband", squadId: Number(btn.dataset.disband) });
+          // id 会重新编号，旧的选中项立刻作废
+          selected.clear();
         });
       });
       listEl.querySelectorAll("[data-absorb]").forEach(btn => {
@@ -661,7 +666,7 @@ export function mountUI({ store, bridge }) {
         markersEl.appendChild(node);
       }
       node.classList.toggle("sel", selected.has(s.id));
-      node.classList.toggle("dead", s.active === false);
+
       node.querySelector(".nm").textContent = squadName(s);
       node.querySelector(".cnt").textContent = s.loose
         ? `${s.alive}` : `${s.alive}/${s.count}`;

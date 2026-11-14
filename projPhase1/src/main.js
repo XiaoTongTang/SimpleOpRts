@@ -90,7 +90,7 @@ async function boot() {
 
     // ---- 2. 渲染（直接读 core 的只读投影，不经过 store） ----
     const view = core.getView();
-    renderer.draw(view);
+    renderer.draw(view, dt);      // dt 给朝向低通：必须是真实帧时长，掉帧时也要准
     ui.syncBattlefield(view);       // 小队标识 / 命令信标跟着每帧位置走
 
     // ---- 3. 快照（节流推给 UI） ----

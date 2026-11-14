@@ -45,7 +45,7 @@ export const HULL_TEMPLATES = {
     name: "矛隼级",
     class: "frigate",
     tier: 1,
-    sprite: { sheet: "护卫舰素材1", frame: "frigate_01" },
+    sprite: { sheet: "frigate", index: 12 },   // 细长型 · 矛隼
 
     command: 4,
     buildTime: 8.0,
@@ -66,7 +66,7 @@ export const HULL_TEMPLATES = {
     name: "壁垒级",
     class: "frigate",
     tier: 2,
-    sprite: { sheet: "护卫舰素材1", frame: "frigate_17" },
+    sprite: { sheet: "frigate", index: 33 },   // 后掠翼 · 壁垒
 
     command: 6,
     buildTime: 12.0,
@@ -87,7 +87,7 @@ export const HULL_TEMPLATES = {
     name: "重锤级",
     class: "destroyer",
     tier: 1,
-    sprite: { sheet: "护卫舰素材1", frame: "frigate_33" },
+    sprite: { sheet: "frigate", index: 47 },   // 方厚型 · 重锤
 
     command: 10,
     buildTime: 26.0,
@@ -109,7 +109,7 @@ export const HULL_TEMPLATES = {
     name: "堡垒级",
     class: "cruiser",
     tier: 1,
-    sprite: { sheet: "护卫舰素材1", frame: "frigate_49" },
+    sprite: { sheet: "frigate", index: 9 },    // 重甲型 · 堡垒
 
     command: 22,
     buildTime: 63.8,
@@ -132,7 +132,7 @@ export const HULL_TEMPLATES = {
     name: "方舟级",
     class: "mothership",
     tier: 1,
-    sprite: { sheet: "母舰可用素材_atlas", frame: "母舰4_3" },
+    sprite: { sheet: "mothership", index: 0 }, // 母舰图集第 1 帧
 
     command: 0,          // 母舰不进舰队人口，它提供人口
     buildTime: 0,

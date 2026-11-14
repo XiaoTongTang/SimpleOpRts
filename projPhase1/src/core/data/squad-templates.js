@@ -8,7 +8,7 @@
  *   {
  *     id, name,
  *     entries:  [ { ship: "ship.std_falcon", n: 16 }, ... ]   // 可以有多种型号
- *     formations: [ "form.standard", ... ]                   // 有序，[0] 是默认阵型
+ *     formations: [ "form.default", ... ]                   // 有序，[0] 是默认阵型
  *   }
  *
  * 关键规则（这是"追溯"的来源）：
@@ -36,7 +36,7 @@ export const SQUAD_TEMPLATES = {
     entries: [
       { ship: "ship.std_falcon", n: 24 }
     ],
-    formations: ["form.standard", "form.dense", "form.wide"]
+    formations: ["form.default"]
   },
 
   "squad.wall": {
@@ -47,7 +47,7 @@ export const SQUAD_TEMPLATES = {
       { ship: "ship.std_falcon", n: 12 },
       { ship: "ship.std_bulwark", n: 8 }
     ],
-    formations: ["form.dense", "form.standard"]
+    formations: ["form.default"]
   },
 
   "squad.raider": {
@@ -58,7 +58,7 @@ export const SQUAD_TEMPLATES = {
       { ship: "ship.std_falcon", n: 14 },
       { ship: "ship.std_hammer", n: 4 }
     ],
-    formations: ["form.guerrilla", "form.wide", "form.standard"]
+    formations: ["form.default"]
   },
 
   "squad.support": {
@@ -69,7 +69,7 @@ export const SQUAD_TEMPLATES = {
       { ship: "ship.std_falcon", n: 18 },
       { ship: "ship.support_repair", n: 6 }
     ],
-    formations: ["form.standard", "form.guerrilla"]
+    formations: ["form.default"]
   }
 };
 

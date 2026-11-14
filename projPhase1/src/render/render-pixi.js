@@ -2,7 +2,7 @@
  * 渲染层接口 · PixiJS 实现
  * -----------------------------------------------------------------
  * 战场现在全部走 Pixi（WebGL）：
- *   · 单位是**像素船图**（public/imgs/frigate.png 的 64 张 32×32 切片）
+ *   · 单位是**像素船图**（public/imgs 下两张图集，见 core/data/sprite-atlas.js）
  *   · 所有单位只按**阵营**着色，小队不再有自己的颜色
  *   · 弹丸、光束、爆炸、支援连线都画在一张 additive 的 Graphics 上
  *
@@ -15,11 +15,15 @@
 import { Application, Container, Graphics, Sprite } from "pixi.js";
 import { WorldRenderer } from "./renderer.js";
 import { FACTION_TINT, NEUTRAL_HUE, hpColor, hslHex } from "./palette.js";
-import { loadShipAtlas, variantOf, sizeOf } from "./ship-sprites.js";
+import { loadShipAtlases, resolveFrame, sizeOf } from "./ship-sprites.js";
 import { getChamferedCellPolygon } from "../core/sim/wall-geometry.js";
+import { AngleFilterBank, DEFAULT_CUTOFF_HZ } from "./angle-filter.js";
 
 const BG = 0x07090d;
 const WALL_FILL = 0x1b2733;
+
+/** 朝向低通的截止频率（Hz）。可用 ?angle=off 关掉做 A/B */
+const CUTOFF_HZ = DEFAULT_CUTOFF_HZ;
 
 // 血条（画法参数，不是游戏数值）
 const BAR_W = 14;
@@ -37,9 +41,15 @@ class PixiRenderer extends WorldRenderer {
     super();
     this.app = null;
     this.sprites = [];
-    this.atlas = null;
+    this.atlases = new Map();
     this.w = 1;
     this.h = 1;
+
+    // 朝向低通：状态按**单位对象**存（不是精灵），见 angle-filter.js
+    this.angleFilters = new AngleFilterBank(CUTOFF_HZ);
+    if (typeof location !== "undefined" && /[?&]angle=off/.test(location.search)) {
+      this.angleFilters.enabled = false;
+    }
   }
 
   async init(canvas) {
@@ -68,7 +78,7 @@ class PixiRenderer extends WorldRenderer {
     this.world.addChild(this.border, this.walls, this.unitsLayer, this.bars, this.glow);
     app.stage.addChild(this.world);
 
-    this.atlas = await loadShipAtlas();
+    this.atlases = await loadShipAtlases();
     this.w = 1;
     this.h = 1;
   }
@@ -83,7 +93,7 @@ class PixiRenderer extends WorldRenderer {
     this.app.renderer.resize(w, h);
   }
 
-  draw(view) {
+  draw(view, dt = 1 / 60) {
     const cam = view.camera || { ox: 0, oy: 0, zoom: 1 };
 
     this.world.position.set(cam.ox, cam.oy);
@@ -91,7 +101,7 @@ class PixiRenderer extends WorldRenderer {
 
     this.drawBorder(view.world);
     this.drawWalls(view);
-    this.drawUnits(view);
+    this.drawUnits(view, dt);
     this.drawBars(view);
     this.drawFx(view);
     this.drawProjectiles(view.projectiles);
@@ -164,17 +174,16 @@ class PixiRenderer extends WorldRenderer {
 
   // ---------------- 单位 ----------------
 
-  drawUnits(view) {
+  drawUnits(view, dt = 1 / 60) {
     const squads = view.squads || [];
     const units = view.units;
-    const frames = this.atlas.frames;
-    const count = this.atlas.count;
+    const atlases = this.atlases;
 
     // 补齐精灵池
     while (this.sprites.length < units.length) {
-      const s = new Sprite(frames[0]);
+      const s = new Sprite();
       s.anchor.set(0.5);
-      s._v = -1;
+      s._tex = null;
       s._ang = 0;
       this.unitsLayer.addChild(s);
       this.sprites.push(s);
@@ -191,16 +200,16 @@ class PixiRenderer extends WorldRenderer {
       const s = this.sprites[n++];
       s.visible = true;
 
-      // 同型号恒定用同一张图：只有属性变了才换 texture
-      const v = variantOf(u, count);
-      if (s._v !== v) { s.texture = frames[v]; s._v = v; }
+      // 船图由船体模板决定（u.skin = "图集名#帧下标"），同型号恒定同一张
+      const tex = resolveFrame(atlases, u);
+      if (tex && s._tex !== tex) { s.texture = tex; s._tex = tex; }
 
       const size = sizeOf(u);                // 世界像素：受击半径越大，船越大
-      s.scale.set(size / 32);
+      s.scale.set(size / (tex ? tex.cellW : 32));
 
-      // 航向：静止时保持上一帧朝向，避免抖
-      const sp = Math.hypot(u.vx, u.vy);
-      if (sp > 4) s._ang = Math.atan2(u.vy, u.vx);
+      // 航向：每帧都把速度方向喂给 IIR 低通（没有速度死区）。
+      // 滤波状态按**单位**存，所以船死了之后新船不会继承旧朝向。
+      s._ang = this.angleFilters.filter(u, Math.atan2(u.vy, u.vx), dt);
       s.rotation = s._ang + Math.PI / 2;     // 素材船头朝上
 
       s.x = u.x;

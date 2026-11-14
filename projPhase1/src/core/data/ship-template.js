@@ -246,6 +246,8 @@ export function compileShip(tpl) {
   return {
     hull: tpl.hull,
     class: hull.class,
+    // 船图：{ sheet, index }，由船体模板决定。渲染层据此挑图（见 render/ship-sprites.js）
+    sprite: hull.sprite || null,
     maxHp: derived.armor.hp,
     regen: derived.armor.hpRegen,
     maxShield: derived.armor.shield,

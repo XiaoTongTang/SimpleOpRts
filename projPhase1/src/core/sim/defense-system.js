@@ -15,6 +15,16 @@
 
 import { DEFAULT_HIT_R } from "./spatial.js";
 import { rand } from "./rng.js";
+import { skinOf as skinOfSprite } from "../data/sprite-atlas.js";
+
+/**
+ * 运行时规格里的船图 → 单位身上的 skin 字符串（"图集名#帧下标"）。
+ * 没有配 sprite 的船体返回 null，渲染层会退回按属性哈希挑图。
+ * 换算规则在 core/data/sprite-atlas.js，三个界面共用同一张表。
+ */
+function skinOf(rt) {
+  return skinOfSprite(rt && rt.sprite);
+}
 
 /**
  * 初始化一个单位的战斗状态（舰船身份版）
@@ -48,6 +58,9 @@ export function initUnit(u, rt) {
   // 注意 **不是** shieldHitR —— 那是"护盾层外扩半径"，目前没有任何代码读它。
   u.radius = u.hitR;
   u.mass = 1;                  // 每单位质量；有效质量 = u.mass × G.mass（默认都是 1）
+
+  // 船图：由船体模板决定，形如 "frigate#12"。渲染层据此挑图集与帧。
+  u.skin = skinOf(rt);
 
   // 支援能力挂在「这一艘船」上，不再读小队
   u.abilities = rt.abilities || [];
@@ -109,6 +122,7 @@ export function retrofitUnit(u, rt) {
   u.weapon = u.weapons[0]?.id ?? "laser";
   u.hitR = rt.hitR === undefined ? DEFAULT_HIT_R : rt.hitR;
   u.radius = u.hitR;                                   // 船体半径与受击半径永远同源
+  u.skin = skinOf(rt);
   if (!(u.mass > 0)) u.mass = 1;
   u.abilities = rt.abilities || [];
   u.fireRate = rt.fireRate || 1;

@@ -10,7 +10,7 @@
  * 注意：改编制是**追溯**的 —— 引用了这个模板的小队会立刻剔除多出来的船。
  */
 
-import { spriteCell, applySprite, paint, fmtNum } from "./util.js";
+import { spriteCell, spriteStyle, applySprite, paint, fmtNum } from "./util.js";
 
 export function mountSquadBuild(root, { store, bridge, catalog, onBack }) {
   const hulls = catalog.hulls || [];
@@ -181,7 +181,7 @@ export function mountSquadBuild(root, { store, bridge, catalog, onBack }) {
         const s = ships().find(x => x.id === e.ship);
         const h = hulls.find(x => x.id === s?.hull);
         const cell = spriteCell({ id: s?.hull }, h);
-        const pos = `background-position:calc(${-cell.col} * var(--u)) calc(${-cell.row} * var(--u))`;
+        const pos = spriteStyle(cell);
         return `
           <div class="fleetcard" data-ship="${e.ship}">
             <i class="sprite card" style="${pos}"></i>
@@ -270,10 +270,10 @@ export function mountSquadBuild(root, { store, bridge, catalog, onBack }) {
   }
 
   function formName(id) {
-    return {
-      "form.standard": "标准", "form.guerrilla": "游击",
-      "form.dense": "密集", "form.wide": "大间距"
-    }[id] || id;
+    // 阵型名统一从快照里取（现在只剩一个「默认阵型」，以后加自建的也能显示对）
+    const f = (store.getState().snap?.formationList || []).find(x => x.id === id);
+    if (f) return f.name.replace("阵型", "");
+    return id;
   }
 
   function paintPicker(t) {
@@ -285,7 +285,7 @@ export function mountSquadBuild(root, { store, bridge, catalog, onBack }) {
       + "|" + (pickedShip || ""), () => ships().map(s => {
         const h = hulls.find(x => x.id === s.hull);
         const cell = spriteCell({ id: s.hull }, h);
-        const pos = `background-position:calc(${-cell.col} * var(--u)) calc(${-cell.row} * var(--u))`;
+        const pos = spriteStyle(cell);
         const wn = (s.weapons || []).map(w => w.name).join("、") || "无武器";
         const pn = (s.plugins || []).map(p => p.name).join("、") || "无插件";
         return `

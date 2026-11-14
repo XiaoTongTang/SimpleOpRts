@@ -523,9 +523,17 @@ html, body {
 .row .lock { font-size: 9px; color: #c08f88; border: 1px solid rgba(200,80,60,.35); padding: 0 3px; }
 
 /* 像素船图：256×256 图集，8×8 格 */
+/* 舰船缩略图。
+ *
+ * 素材里的船头朝**上**（-y），而船体槽位坐标是 **+x = 船头**、+y = 左舷
+ * （见 hull-templates 的 slots.pos，以及 ship-design 里 dx = pos[0]*7 / dy = -pos[1]*7）。
+ * 所以这里顺时针转 90°：船头朝右、左舷朝上，安装位才和船图对得上。
+ * 战斗界面不用这个类（它按航向每帧算旋转）。 */
 .sprite {
+  --u: 32px;
+  transform: rotate(90deg);
   image-rendering: pixelated;
-  background-image: var(--sprite-url, url("/imgs/frigate.png"));
+  background-image: var(--sprite-url, url("/imgs/frigate2.png"));
   background-repeat: no-repeat;
   flex: none;
   display: inline-block;
@@ -777,3 +785,176 @@ html, body {
 
 /* 没有打开任何构筑界面时，这一层必须是空的：否则它的背景会盖住整个战场 */
 #screen-root:empty { display: none; }
+
+/* ==================================================================
+   阵型编辑界面（.fm-*）
+   ------------------------------------------------------------------
+   布局对齐 UI原型-4，参数是质量速度模型的 13 个键。
+   三栏：阵型库 / 预览战场 / Couzin 参数
+   ================================================================== */
+
+.fm-body {
+  flex: 1; min-height: 0;
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr) 372px;
+}
+
+.fm-left, .fm-right {
+  min-height: 0; display: flex; flex-direction: column;
+  background: #0d131b; overflow: hidden;
+}
+.fm-left { border-right: 2px solid var(--px-dark); }
+.fm-right { border-left: 2px solid var(--px-dark); }
+
+.fm-left .scroll { padding: 6px; }
+
+/* ---- 左栏：阵型行 ---- */
+.frow {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 8px; cursor: pointer;
+  border: 2px solid transparent; background: #0f161f;
+  margin-bottom: 4px;
+}
+.frow:hover { border-color: var(--px-edge-dim); }
+.frow.sel { background: var(--px-face-sel); border-color: var(--px-edge); }
+.frow-main { min-width: 0; flex: 1; }
+.frow .nm {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; color: #cfe0ee;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.frow .sub { margin-top: 3px; font-size: 10px; color: var(--mute); font-family: var(--mono); }
+.frow .delx {
+  flex: none; width: 18px; height: 18px; line-height: 1;
+  background: transparent; color: #7a8b9c; border: 1px solid #2a3b4d;
+  font-size: 11px; cursor: pointer;
+}
+.frow .delx:hover { color: #e06c5a; border-color: #7a3a33; }
+
+.badge {
+  font-style: normal; font-size: 9px; padding: 1px 4px;
+  border: 1px solid #2f4a63; color: #6f93b4; background: #101c27;
+}
+.badge.mine { border-color: #4a6a3a; color: #8fbd6f; background: #141f10; }
+.badge.used { border-color: #5a4a2a; color: #c8a765; background: #1d1910; }
+
+/* ---- 中间：预览战场 ---- */
+.fm-stage {
+  position: relative; min-height: 0;
+  display: flex; flex-direction: column;
+  background: radial-gradient(ellipse 60% 55% at 50% 45%, #0d1521 0%, #070a0f 65%, #06080b 100%);
+  overflow: hidden;
+}
+.fm-stage > .panel-head { flex: none; }
+
+/* Pixi 会给自己 set 内联 style="width:1px"，所以这里必须 !important 把尺寸交还给布局 */
+.fm-canvas-wrap { flex: 1; min-height: 0; position: relative; }
+#fm-canvas {
+  position: absolute; inset: 0;
+  width: 100% !important; height: 100% !important;
+  display: block; image-rendering: pixelated;
+}
+
+.fm-hud {
+  flex: none;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  padding: 7px 10px;
+  background: rgba(8, 13, 19, .88);
+  border-top: 2px solid var(--px-dark);
+}
+.fm-pick { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--mute); }
+.fm-pick select {
+  background: #101c27; color: #cfe0ee; border: 1px solid #2a3b4d;
+  font-family: var(--mono); font-size: 11px; padding: 2px 4px;
+}
+.fm-acts { margin-left: auto; display: flex; gap: 6px; }
+.fm-acts .btn { padding: 4px 9px; font-size: 11px; }
+
+/* ---- 右栏：参数 ---- */
+.fm-params { padding: 10px 12px; }
+.fm-empty { color: var(--mute); font-size: 12px; padding: 20px 4px; text-align: center; }
+
+.param-group { margin-bottom: 14px; }
+.pgroup-title {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 11px; letter-spacing: .08em; color: #93b4d2;
+  padding-bottom: 5px; margin-bottom: 8px;
+  border-bottom: 1px solid #1c2a38;
+}
+.pgroup-title .hint { font-size: 10px; color: var(--mute); letter-spacing: 0; }
+.pgroup-title .n { margin-left: auto; font-family: var(--mono); font-size: 10px; color: #4b6076; }
+
+.param {
+  padding: 6px 7px; margin-bottom: 6px;
+  border-left: 2px solid transparent; background: #0c131b;
+}
+.param.touched { border-left-color: #c8a765; background: #12181f; }
+.ptop { display: flex; align-items: baseline; gap: 6px; }
+.ptop .pk { font-family: var(--mono); font-size: 11px; color: #7fc0f5; }
+.ptop .pn { font-size: 11px; color: #a9c0d4; }
+.ptop .pv { margin-left: auto; font-family: var(--mono); font-size: 12px; color: #e6eef5; }
+.param.touched .pv { color: #e8c877; }
+
+.prange {
+  width: 100%; height: 14px; margin: 4px 0 2px;
+  -webkit-appearance: none; appearance: none;
+  background: transparent; cursor: pointer;
+}
+.prange::-webkit-slider-runnable-track { height: 4px; background: #1b2b3a; border: 1px solid #24405a; }
+.prange::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 10px; height: 14px; margin-top: -6px;
+  background: #7fc0f5; border: 1px solid #0a1219;
+}
+.param.touched .prange::-webkit-slider-thumb { background: #e8c877; }
+
+.pdesc { font-size: 10px; line-height: 1.45; color: #56697c; }
+
+.fm-save {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px;
+  background: #0a1118; border-top: 2px solid var(--px-dark);
+}
+.fm-state { flex: 1; font-size: 11px; color: var(--mute); font-family: var(--mono); }
+.fm-state.dirty { color: #e8c877; }
+.fm-save .btn { padding: 5px 12px; font-size: 11px; }
+
+/* ---- 全局参数卡片（独立保存） ---- */
+.fm-card {
+  margin: 10px 12px 4px;
+  border: 2px solid #1f3245;
+  background: #0b1520;
+}
+.fm-card-head {
+  display: flex; align-items: baseline; gap: 6px;
+  padding: 6px 9px;
+  background: #12202e;
+  border-bottom: 2px solid #1f3245;
+  font-size: 11px; letter-spacing: .08em; color: #a8c6e0;
+}
+.fm-card-head .hint { font-size: 10px; color: var(--mute); letter-spacing: 0; }
+.fm-card > div:not(.fm-card-head):not(.fm-card-foot) { padding: 6px 6px 0; }
+.fm-card .param { background: #0a121a; margin-bottom: 5px; }
+.fm-card-foot {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 8px;
+  border-top: 1px solid #1a2a38;
+}
+.fm-card-foot .btn { padding: 3px 9px; font-size: 10px; }
+
+/* ---- 命令信标 / 提示 ---- */
+.fm-beacon {
+  position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px;
+  border: 2px solid #ffd479; border-radius: 50%;
+  background: rgba(255, 212, 121, .18);
+  pointer-events: none;
+}
+.fm-beacon::after {
+  content: ""; position: absolute; inset: 3px;
+  background: #ffd479; border-radius: 50%; opacity: .8;
+}
+.fm-tip {
+  position: absolute; left: 8px; bottom: 6px;
+  font-size: 10px; color: #4b6076; font-family: var(--mono);
+  pointer-events: none;
+  text-shadow: 0 1px 2px #000;
+}

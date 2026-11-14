@@ -43,8 +43,12 @@ export class WorldRenderer {
     throw new Error("WorldRenderer.resize 未实现");
   }
 
-  /** 画一帧战场。view 只读 */
-  draw(view) {                     // eslint-disable-line no-unused-vars
+  /**
+   * 画一帧战场。view 只读。
+   * @param {number} dt 距上一帧的真实时长（秒）——朝向低通滤波要用它，
+   *   所以必须用**真实**帧时长而不是固定步长，否则掉帧时平滑强度会变。
+   */
+  draw(view, dt) {                     // eslint-disable-line no-unused-vars
     throw new Error("WorldRenderer.draw 未实现");
   }
 

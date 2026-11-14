@@ -59,15 +59,33 @@ export const DEFAULT_P = makeParams();
 
 // ---------------------------------------------------------------
 // 全局参数（所有小队共用，不随小队变化）
-// 实际生效值写在 core.js 的 this.G；这里只作声明与文档。
+//
+// 实际生效值在 core.js 的 this.G；这里放的是**定义 + 元数据**：
+// 阵型编辑界面的「全局参数」卡片、以及 setGlobalParams 的夹值都读它。
 // ---------------------------------------------------------------
-export const GLOBAL_DEFS = [
-  ["damping", 2, 1.50],          // 粘性阻尼 λ（1/s），替代旧的 drag=0.30
-  ["mass", 2, 1.00],             // 全局质量：a = F / mass
-  ["boostSpeed", 0, 60],         // 低速助推阈值（沿用 stallSpeed）
-  ["boostForce", 0, 100],        // 低速助推力（沿用 stallAccel）
-  ["maxSpeedFactor", 2, 1.80]    // 安全阀：|v| ≤ SPD × 这个系数
+export const GLOBAL_PARAM_DEFS = [
+  { k: "damping", name: "粘性阻尼 λ", min: 0, max: 6, step: 0.05, dec: 2,
+    desc: "速度的自然衰减率（1/s）。越大停得越快、抖动衰减越快，但转向也越「黏」" },
+  { k: "mass", name: "全局质量", min: 0.2, max: 5, step: 0.1, dec: 1,
+    desc: "加速度 = 力 / (单位质量 × 它)。调大等于所有力一起变弱" },
+  { k: "boostSpeed", name: "助推阈值", min: 0, max: 200, step: 5, dec: 0,
+    desc: "速度低于这个值就沿当前朝向补推力，是「无命令时集群自己游走」的来源" },
+  { k: "boostForce", name: "助推力", min: 0, max: 400, step: 10, dec: 0,
+    desc: "低速助推的力度（px/s²）。0 = 关掉游走，舰队会停住" },
+  { k: "maxSpeedFactor", name: "限速系数", min: 0.5, max: 3, step: 0.05, dec: 2,
+    desc: "速度上限 = 巡航速度 × 它。只是安全阀，正常战斗不该顶到" }
 ];
+
+export const GLOBAL_PARAM_KEYS = GLOBAL_PARAM_DEFS.map(d => d.k);
+
+/** 把全局参数夹进合法区间并按元数据取整 */
+export function clampGlobalParam(key, value) {
+  const def = GLOBAL_PARAM_DEFS.find(d => d.k === key);
+  const v = Number(value);
+  if (!def) return Number.isFinite(v) ? v : 0;
+  if (!Number.isFinite(v)) return def.min;
+  return Number(Math.min(def.max, Math.max(def.min, v)).toFixed(def.dec));
+}
 
 // ---------------------------------------------------------------
 // 小队定义：两个阵营 × 4 个正规队 + 双方各 1 个"未编队"

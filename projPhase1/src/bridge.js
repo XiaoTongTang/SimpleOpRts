@@ -91,6 +91,12 @@ function describe(cmd) {
     case "disband": return "已解散，舰船退回散兵池";
     case "editSquadTemplate": return "编制模板已更新，引用它的小队已追溯剔除";
     case "setFormation": return "阵型已切换";
+    case "editFormation": return `阵型参数 ${cmd.key} = ${cmd.value}`;
+    case "editFormationBatch": return "阵型参数已保存";
+    case "createFormation": return "阵型已创建";
+    case "duplicateFormation": return "阵型已复制";
+    case "renameFormation": return "阵型已改名";
+    case "deleteFormation": return "阵型已删除";
     case "setGoal": return "命令信标已下达";
     case "clearGoal": return "命令信标已取消";
     case "buildFromTemplate": return "小队已建造";

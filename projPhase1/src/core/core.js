@@ -15,7 +15,8 @@
  */
 
 import {
-  makeSquads, makeSquad, resizeSquad, computeCenters, computeSquadTargets, countMembers
+  makeSquads, makeSquad, resizeSquad, computeCenters, computeSquadTargets, countMembers,
+  GLOBAL_PARAM_DEFS, GLOBAL_PARAM_KEYS, clampGlobalParam
 } from "./sim/squad-layer.js";
 import { stepUnits } from "./sim/group-layer.js";
 import { Grid } from "./sim/spatial.js";
@@ -32,12 +33,15 @@ import {
 import { seedRng, rand } from "./sim/rng.js";
 import {
   MAX_PER_SQUAD, MODULES_PER_SHIP,
-  createBuild, entryCost, entriesCost, squadEntries, commandsUsed, applyShipToSquadParams
+  createBuild, cloneBuild, entryCost, entriesCost, squadEntries, commandsUsed, applyShipToSquadParams
 } from "./state.js";
 import {
   cloneEntries, cloneTemplateLibrary, entriesCount, MAX_FORMATION_SLOTS
 } from "./data/squad-templates.js";
-import { FORMATIONS, applyFormation } from "./data/formation-templates.js";
+import {
+  cloneFormations, applyFormation, makeFormation, clampFormationParam,
+  FORMATION_KEYS, FORMATION_PARAM_KEYS, FORMATION_PARAM_GROUPS
+} from "./data/formation-templates.js";
 import * as shipLib from "./data/ship-library.js";
 import { computeShip, compileShip, setFit } from "./data/ship-template.js";
 import { getHull, HULL_TEMPLATES } from "./data/hull-templates.js";
@@ -80,13 +84,13 @@ export class GameCore {
     /** 随机种子：同一个 seed 每次重开都是同一场战斗 */
     this.seed = seedRng(opts.seed ?? this.seed ?? 1);
 
-    /** 全局移动参数。飞行员的个体差异全部下沉到小队 p，这里只剩"物理"。 */
+    /** 全局移动参数。数值取质量速度模型沙盒的实测默认值（见 form.default 的注释） */
     this.G = {
-      damping: 1.50,        // 粘性阻尼 λ（1/s），替代旧的 drag=0.30
-      mass: 1.00,           // 全局质量：a = F / mass（迁移起点取 1，不改变任何东西）
+      damping: 0.80,        // 粘性阻尼 λ（1/s）
+      mass: 1.00,           // 全局质量：a = F / mass
       boostSpeed: 60,       // 低速助推阈值
-      boostForce: 100,      // 低速助推力
-      maxSpeedFactor: 1.80  // 安全阀：|v| ≤ SPD × 这个系数
+      boostForce: 40,       // 低速助推力
+      maxSpeedFactor: 1.80  // 安全阀：|v| ≤ SPD × 这个系数（沙盒没有上限，这里保留以防火箭）
     };
 
     this.squads = makeSquads();
@@ -108,7 +112,17 @@ export class GameCore {
       ? this.squadTemplates
       : cloneTemplateLibrary();
 
-    this.build = createBuild(this.squadTemplates);
+    // 阵型库：每个 core 一份自己的（和编制模板库一样，reset 不清空）
+    this.formations = (this.formations && Object.keys(this.formations).length)
+      ? this.formations
+      : cloneFormations();
+
+    // 构筑：默认按模板库生成。`opts.build` 可以让调用方塞一份现成的构筑
+    // （阵型编辑界面用它造一个只有一两支小队的预览战场），之后 reset 都沿用同一份。
+    this.buildTemplate = opts.build || this.buildTemplate || null;
+    this.build = this.buildTemplate
+      ? cloneBuild(this.buildTemplate)
+      : createBuild(this.squadTemplates);
 
     /** 生产：阶段一没有母舰实体，直接用方舟级的产能参数虚拟一个 */
     const ms = getHull("hull.ark").mothership;
@@ -366,7 +380,7 @@ export class GameCore {
       sq.p.members = b.count;
       // 小队默认参数按主方案编译（战斗属性由每艘船自己带，不从这里来）
       applyShipToSquadParams(sq, this.ships[b.ship]);
-      if (b.form) applyFormation(sq.p, b.form);      // 阵型：十二个参数整块覆盖
+      if (b.form) applyFormation(sq.p, b.form, this.formations);  // 阵型：13 个参数整块覆盖
 
       const row = b.id % 4;
       const bx = cols[b.faction] ?? this.width * 0.5;
@@ -596,8 +610,6 @@ export class GameCore {
         id: b.id, key: b.key, faction: b.faction, loose: b.loose,
         // 界面上显示的名字（新建小队用模板名，初始队用字母）
         name: b.name || (b.loose ? "散兵" : b.key),
-        // 已解散 = 编制还在但场上没船；列表里仍然保留，方便重新吸收组建
-        active: b.active !== false,
         template: b.template || null,
         templateName: b.template ? (this.squadTemplates[b.template]?.name ?? b.template) : null,
         // 编制：多型号
@@ -637,7 +649,7 @@ export class GameCore {
       factions: [0, 1].map(f => {
         let ships = 0, squads = 0;
         for (const b of this.build.squads) {
-          if (b.faction !== f || b.active === false) continue;
+          if (b.faction !== f) continue;
           squads++;
         }
         for (const u of this.units) {
@@ -695,6 +707,25 @@ export class GameCore {
           }
         };
       }),
+      // 阵型库：玩家可编辑的 Couzin 参数组。usedBy = 有多少支小队"当前正在用"它
+      formationList: Object.values(this.formations).map(f => ({
+        id: f.id,
+        name: f.name,
+        desc: f.desc || "",
+        from: f.from || null,
+        builtin: !!f.builtin,
+        usedBy: this.build.squads.filter(b => b.form === f.id).length,
+        p: { ...f.p }
+      })),
+      /** 参数面板要用：分组、上下限、小数位、说明 */
+      formationParams: FORMATION_PARAM_GROUPS.map(g => ({
+        title: g.title,
+        hint: g.hint,
+        items: g.items.map(i => ({ ...i }))
+      })),
+      /** 全局群体参数：当前值 + 元数据（阵型编辑界面的「全局参数」卡片） */
+      G: { ...this.G },
+      globalParams: GLOBAL_PARAM_DEFS.map(d => ({ ...d })),
       shipRev: this.shipRev,
       squads,
       production: this.production.map(f => ({
@@ -829,6 +860,15 @@ export class GameCore {
       case "createSquadTemplate": return this.cmdCreateSquadTemplate(cmd);
       case "deleteSquadTemplate": return this.cmdDeleteSquadTemplate(cmd);
       case "setFormation": return this.cmdSetFormation(cmd);
+      case "setGlobalParams": return this.cmdSetGlobalParams(cmd);
+
+      // 阵型库（玩家可编辑的 Couzin 参数组）
+      case "editFormation": return this.cmdEditFormation(cmd);
+      case "editFormationBatch": return this.cmdEditFormationBatch(cmd);
+      case "createFormation": return this.cmdCreateFormation(cmd);
+      case "duplicateFormation": return this.cmdDuplicateFormation(cmd);
+      case "renameFormation": return this.cmdRenameFormation(cmd);
+      case "deleteFormation": return this.cmdDeleteFormation(cmd);
 
       default:
         return reject([`未知命令 ${cmd.type}`], "unknown");
@@ -867,7 +907,7 @@ export class GameCore {
 
     if (nextShip) {
       // 解散状态的队伍本来就没占指挥值（commandsUsed 跳过它），按 0 起算
-      const prevCost = b.active === false ? 0 : entriesCost(squadEntries(b), this.ships);
+      const prevCost = entriesCost(squadEntries(b), this.ships);
       const usedAfter = commandsUsed(this.build, this.ships, this.units)
         - prevCost + entryCost(nextShip, nextCount);
       if (usedAfter > this.build.commandCap) {
@@ -889,7 +929,6 @@ export class GameCore {
     b.entries = [{ ship: nextShipId, n: nextCount }];
     b.ship = nextShipId;
     b.count = nextCount;
-    b.active = true;
     if (!b.formations || !b.formations.length) {
       b.formations = b.form ? [b.form] : [];
     }
@@ -933,7 +972,7 @@ export class GameCore {
       return reject([`一个编制最多挂 ${MAX_FORMATION_SLOTS} 个阵型`]);
     }
     for (const f of nextForms) {
-      if (!FORMATIONS[f]) return reject([`未知阵型 ${f}`]);
+      if (!this.formations[f]) return reject([`未知阵型 ${f}`]);
     }
     for (const e of nextEntries) {
       if (!this.ships[e.ship]) return reject([`未知舰船方案 ${e.ship}`]);
@@ -946,7 +985,7 @@ export class GameCore {
     const used = commandsUsed(this.build, this.ships, this.units);
     let delta = 0;
     for (const b of this.build.squads) {
-      if (b.template !== tplId || b.active === false) continue;
+      if (b.template !== tplId) continue;
       delta += entriesCost(nextEntries, this.ships) - entriesCost(squadEntries(b), this.ships);
     }
     if (used + delta > this.build.commandCap) {
@@ -987,8 +1026,8 @@ export class GameCore {
       if (!this.ships[e.ship]) return reject([`未知舰船方案 ${e.ship}`]);
       if (!Number.isInteger(e.n) || e.n < 0) return reject(["数量必须是 0 以上的整数"]);
     }
-    const forms = Array.isArray(cmd.formations) ? [...cmd.formations] : ["form.standard"];
-    for (const f of forms) if (!FORMATIONS[f]) return reject([`未知阵型 ${f}`]);
+    const forms = Array.isArray(cmd.formations) ? [...cmd.formations] : ["form.default"];
+    for (const f of forms) if (!this.formations[f]) return reject([`未知阵型 ${f}`]);
 
     this.squadTemplates[id] = {
       id, name,
@@ -1050,7 +1089,7 @@ export class GameCore {
     const formId = forms[0] || null;
     if (formId) {
       b.form = formId;
-      applyFormation(this.squads[b.id].p, formId);
+      applyFormation(this.squads[b.id].p, formId, this.formations);
     }
 
     if (poolId >= 0) this.syncPoolCount(poolId);
@@ -1062,12 +1101,151 @@ export class GameCore {
     const b = this.build.squads[cmd.squadId];
     if (!b) return reject(["没有这支小队"]);
     if (b.loose) return reject(["散兵池没有阵型"]);
-    if (!FORMATIONS[cmd.form]) return reject([`未知阵型 ${cmd.form}`]);
+    if (!this.formations[cmd.form]) return reject([`未知阵型 ${cmd.form}`]);
     if (!(b.formations || []).includes(cmd.form)) {
       return reject([`这支小队的编制没解锁阵型 ${cmd.form}`]);
     }
     b.form = cmd.form;
-    applyFormation(this.squads[b.id].p, cmd.form);
+    applyFormation(this.squads[b.id].p, cmd.form, this.formations);
+    return { ok: true };
+  }
+
+  // ------------------------------------------------------------------
+  // 阵型库（玩家可编辑的 Couzin 参数组）
+  // ------------------------------------------------------------------
+  //
+  // 阵型是**设计数据**，不是战场状态：每个 core 一份自己的库，reset 不清空。
+  // 改一个参数要立刻摊到"正在用它的那些小队"上，否则玩家改了没反应。
+  // 编制模板里引用的阵型 id 也在这里校验，删阵型前要看有没有人还在用。
+
+  /**
+   * 改全局群体参数（阻尼 / 质量 / 助推 / 限速）。
+   * 一次可以只给一部分键；未知键与非法值都会被夹住或忽略。
+   */
+  cmdSetGlobalParams(cmd) {
+    const p = cmd.p;
+    if (!p || typeof p !== "object") return reject(["缺少参数对象"]);
+
+    let n = 0;
+    for (const k of GLOBAL_PARAM_KEYS) {
+      if (p[k] === undefined) continue;
+      this.G[k] = clampGlobalParam(k, p[k]);
+      n++;
+    }
+    if (!n) return reject(["没有可用的全局参数"]);
+
+    // 质量变了要同步到场上每一艘船（有效质量 = u.mass × G.mass，通常只靠 G.mass）
+    return { ok: true, changed: n, G: { ...this.G } };
+  }
+
+  /** 生成一个不冲突的自建阵型 id */
+  nextFormId() {
+    let n = 1;
+    for (const id of Object.keys(this.formations)) {
+      const m = /^form\.custom\.(\d+)$/.exec(id);
+      if (m) n = Math.max(n, Number(m[1]) + 1);
+    }
+    return `form.custom.${n}`;
+  }
+
+  /** 把某个阵型重新摊到所有"当前阵型就是它"的小队上 */
+  reapplyFormation(formId) {
+    let n = 0;
+    for (const b of this.build.squads) {
+      if (b.form !== formId) continue;
+      const sq = this.squads[b.id];
+      if (!sq) continue;
+      applyFormation(sq.p, formId, this.formations);
+      n++;
+    }
+    return n;
+  }
+
+  /** 改阵型的一个参数（立刻生效） */
+  cmdEditFormation(cmd) {
+    const f = this.formations[cmd.formId];
+    if (!f) return reject([`未知阵型 ${cmd.formId}`]);
+    if (!FORMATION_KEYS.includes(cmd.key)) return reject([`不是阵型参数 ${cmd.key}`]);
+
+    const value = clampFormationParam(cmd.key, cmd.value);
+    f.p[cmd.key] = value;
+    const applied = this.reapplyFormation(cmd.formId);
+    return { ok: true, key: cmd.key, value, applied };
+  }
+
+  /** 一次改多个参数（面板整体保存用） */
+  cmdEditFormationBatch(cmd) {
+    const f = this.formations[cmd.formId];
+    if (!f) return reject([`未知阵型 ${cmd.formId}`]);
+    if (!cmd.p || typeof cmd.p !== "object") return reject(["缺少参数对象"]);
+
+    let n = 0;
+    for (const k of FORMATION_KEYS) {
+      if (cmd.p[k] === undefined) continue;
+      f.p[k] = clampFormationParam(k, cmd.p[k]);
+      n++;
+    }
+    const applied = this.reapplyFormation(cmd.formId);
+    return { ok: true, changed: n, applied };
+  }
+
+  /** 新建一个自建阵型（默认照抄 standard，可以指定 from） */
+  cmdCreateFormation(cmd) {
+    const id = this.nextFormId();
+    const from = cmd.from && this.formations[cmd.from] ? cmd.from : "form.default";
+    this.formations[id] = makeFormation({
+      id,
+      name: cmd.name || "新阵型",
+      from,
+      p: cmd.p || null,
+      builtin: false
+    });
+    return { ok: true, formId: id };
+  }
+
+  /** 复制一个现有阵型 */
+  cmdDuplicateFormation(cmd) {
+    const src = this.formations[cmd.formId];
+    if (!src) return reject([`未知阵型 ${cmd.formId}`]);
+    const id = this.nextFormId();
+    this.formations[id] = makeFormation({
+      id,
+      name: cmd.name || `${src.name} 副本`,
+      from: null,
+      p: src.p,
+      builtin: false
+    });
+    return { ok: true, formId: id };
+  }
+
+  cmdRenameFormation(cmd) {
+    const f = this.formations[cmd.formId];
+    if (!f) return reject([`未知阵型 ${cmd.formId}`]);
+    const name = String(cmd.name || "").trim();
+    if (!name) return reject(["名字不能为空"]);
+    if (name.length > 24) return reject(["名字太长（最多 24 字）"]);
+    f.name = name;
+    return { ok: true };
+  }
+
+  /** 删一个自建阵型：内置的不能删，还有人在用的也不能删 */
+  cmdDeleteFormation(cmd) {
+    const f = this.formations[cmd.formId];
+    if (!f) return reject([`未知阵型 ${cmd.formId}`]);
+    if (f.builtin) return reject(["内置阵型不能删除"]);
+
+    for (const t of Object.values(this.squadTemplates)) {
+      if ((t.formations || []).includes(cmd.formId)) {
+        return reject([`编制模板「${t.name}」还在用这个阵型`]);
+      }
+    }
+    for (const b of this.build.squads) {
+      if ((b.formations || []).includes(cmd.formId)) {
+        return reject([`小队「${b.name || b.key}」还在用这个阵型`]);
+      }
+    }
+
+    delete this.formations[cmd.formId];
     return { ok: true };
   }
 
@@ -1416,36 +1594,76 @@ export class GameCore {
       ]);
     }
 
-    b.active = true;                  // 解散过的队伍，吸收回来就等于重新组建
+
     computeCenters(this.units, this.squads);
     this.syncPoolCount(poolId);
     return { ok: true, moved };
   }
 
   /**
-   * 解散小队：舰船全部退回散兵池，编制保留（以后可以再吸收回来）。
+   * 解散小队：**删除这支小队实例**，舰船全部退回散兵池。
+   *
+   * 生命周期只有两种状态：存在 / 不存在。没有"已解散但仍记录"这种中间态。
+   * 因此这里必须做三件事，缺一件都会留下幽灵数据：
+   *   1. 把船移走（否则它们会指向一个不存在的队）
+   *   2. 从 `squads` 与 `build.squads` 里**同时**删掉这一项（两者按下标对齐）
+   *   3. 重新编号，并把所有引用旧 id 的地方（船的 squad、生产队列的 squadId）改过来
+   *
    * 指挥值不归还——船还在，只是没编队。
    */
   cmdDisband(cmd) {
-    const b = this.build.squads[cmd.squadId];
+    const id = cmd.squadId;
+    const b = this.build.squads[id];
     if (!b) return reject(["没有这支小队"]);
     if (b.loose) return reject(["散兵池不能解散"]);
-    if (b.active === false) return reject(["这支小队已经解散"]);
 
-    const poolId = this.poolOf(b.faction);
+    const faction = b.faction;
+    const poolId = this.poolOf(faction);
     if (poolId < 0) return reject(["这个阵营没有散兵池"]);
 
+    // 1. 船退回池子
     let moved = 0;
     for (const u of this.units) {
-      if (u.squad !== b.id) continue;
+      if (u.squad !== id) continue;
       u.squad = poolId;
       moved++;
     }
-    b.active = false;
+
+    // 2 & 3. 删除实例 + 重新编号（池子的下标可能因此变化，所以之后要重新找）
+    this.removeSquad(id);
 
     computeCenters(this.units, this.squads);
-    this.syncPoolCount(poolId);
+    const newPool = this.poolOf(faction);
+    if (newPool >= 0) this.syncPoolCount(newPool);
     return { ok: true, moved };
+  }
+
+  /**
+   * 从两张表里删掉一支小队，并把所有引用旧 id 的位置重编号。
+   * `squads[i].id === i` 与 `build.squads[i].id === i` 这两条不变量必须始终成立，
+   * 否则 `units[].squad` 的语义就散了。
+   */
+  removeSquad(id) {
+    if (!this.squads[id] || !this.build.squads[id]) return false;
+    if (this.squads[id].loose) return false;          // 散兵池永远不删
+
+    this.squads.splice(id, 1);
+    this.build.squads.splice(id, 1);
+
+    this.squads.forEach((sq, i) => { sq.id = i; });
+    this.build.squads.forEach((b, i) => { b.id = i; });
+
+    for (const u of this.units) {
+      if (u.squad > id) u.squad -= 1;
+    }
+    for (const fac of this.production) {
+      for (const line of fac.lines) {
+        for (const job of line.queue) {
+          if (job.squadId > id) job.squadId -= 1;
+        }
+      }
+    }
+    return true;
   }
 
   // ------------------------------------------------------------------
@@ -1466,6 +1684,9 @@ export class GameCore {
     for (const id of ids) {
       const sq = this.squads[id];
       if (!sq) continue;
+      // 已解散的队不接受命令：它已经不在了
+      const b = this.build.squads[id];
+
       sq.goal = {
         x: Math.max(0, Math.min(this.width, x)),
         y: Math.max(0, Math.min(this.height, y))
@@ -1536,7 +1757,7 @@ export class GameCore {
     const b = {
       id, key: tpl.name, name,
       faction,
-      loose: false, active: true,
+      loose: false,
       template: tpl.id,
       entries,
       formations: [...tpl.formations],
@@ -1550,7 +1771,7 @@ export class GameCore {
     this.squads.push(sq);
     sq.p.members = ships;
     applyShipToSquadParams(sq, this.ships[b.ship]);
-    if (b.form) applyFormation(sq.p, b.form);
+    if (b.form) applyFormation(sq.p, b.form, this.formations);
 
     // ---- 造舰：母舰旁边成型 ----
     const cx = this.width * (faction === 0 ? 0.26 : 0.74);
@@ -1584,7 +1805,7 @@ export class GameCore {
   commandUsedOf(faction) {
     let sum = 0;
     for (const b of this.build.squads) {
-      if (b.faction !== faction || b.active === false) continue;
+      if (b.faction !== faction) continue;
       if (b.loose) {
         for (const u of this.units) if (u.squad === b.id) sum += u.command || 0;
       } else {

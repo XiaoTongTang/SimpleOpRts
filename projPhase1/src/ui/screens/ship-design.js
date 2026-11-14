@@ -10,7 +10,7 @@
  * 数据全部来自 store 的 snapshot；写入全部走 bridge.run。
  */
 
-import { spriteCell, applySprite, paint, fmtNum, fmtSigned } from "./util.js";
+import { spriteCell, spriteStyle, applySprite, paint, fmtNum, fmtSigned } from "./util.js";
 
 const RANK = { S: 0, M: 1, L: 2 };
 
@@ -157,7 +157,7 @@ export function mountShipDesign(root, { store, bridge, catalog, onBack }) {
     ).join("|") + "|" + (cur?.id || ""), () => list.map(s => {
       const h = hulls.find(x => x.id === s.hull);
       const cell = spriteCell({ id: s.hull }, h);
-      const pos = `background-position:calc(${-cell.col} * var(--u)) calc(${-cell.row} * var(--u))`;
+      const pos = spriteStyle(cell);
       return `
         <div class="row ship${s.id === cur?.id ? " sel" : ""}${s.ok ? "" : " bad"}" data-ship="${s.id}"
              title="${s.inService > 0 ? `在役 ${s.inService} 艘 · 已锁定` : "未建造 · 可改"}">

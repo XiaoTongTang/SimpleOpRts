@@ -68,7 +68,7 @@ export function squadEntries(b) {
 export function commandsUsed(build, ships, units = null) {
   let sum = 0;
   for (const s of build.squads) {
-    if (s.active === false) continue;
+
 
     if (s.loose) {
       if (units) {
@@ -107,7 +107,7 @@ export function createBuild(templates = SQUAD_TEMPLATES) {
       // 散兵池：没有编制，靠生产线出锅和踢出来的船填充
       squads.push({
         id: i, key: "散", name: "散兵", faction,
-        loose: true, active: true,
+        loose: true,
         template: null,
         entries: [],
         formations: [],
@@ -124,7 +124,7 @@ export function createBuild(templates = SQUAD_TEMPLATES) {
 
     squads.push({
       id: i, key: "ABCDEFGH"[i % 8], name: tpl.name, faction,
-      loose: false, active: true,
+      loose: false,
       template: tplId,
       entries,
       formations: [...tpl.formations],

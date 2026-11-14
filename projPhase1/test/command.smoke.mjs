@@ -72,7 +72,7 @@ console.log("\n[3] 一键建造一支小队");
   const s = core.snapshot().squads.find(x => x.id === r.squadId);
   eq("名字用了模板名（重名自动编号）", s.name, "突击队 2");
   eq("编制 24", s.count, 24);
-  eq("阵型是模板默认", s.form, "form.standard");
+  eq("阵型是模板默认", s.form, "form.default");
   eq("引用了模板", s.template, "squad.assault");
 
   // 再次建造：名字继续编号
@@ -152,13 +152,13 @@ console.log("\n[7] 编制模板的新建 / 删除");
   const r = core.command({
     type: "createSquadTemplate", name: "混合试验",
     entries: [{ ship: "ship.std_falcon", n: 6 }, { ship: "ship.std_hammer", n: 2 }],
-    formations: ["form.guerrilla", "form.standard"]
+    formations: ["form.default"]
   });
   ok("新建成功", r.ok === true, JSON.stringify(r));
   eq("模板数 +1", Object.keys(core.squadTemplates).length, before + 1);
   const tpl = core.squadTemplates[r.id];
   eq("编制条目", tpl.entries.length, 2);
-  eq("默认阵型是第一个", tpl.formations[0], "form.guerrilla");
+  eq("默认阵型是第一个", tpl.formations[0], "form.default");
 
   const delUsed = core.command({ type: "deleteSquadTemplate", templateId: "squad.assault" });
   ok("在用的模板不能删", delUsed.ok === false, JSON.stringify(delUsed));

@@ -39,14 +39,14 @@ console.log("\n[1] 开局：4 个编制模板，8 支队各自引用");
   const b0 = core.build.squads[0];
   eq("A 队引用突击队", b0.template, "squad.assault");
   eq("A 队编制 24 矛隼", entriesOf(core, 0), "ship.std_falcon:24");
-  eq("A 队阵型是模板默认", b0.form, "form.standard");
+  eq("A 队阵型是模板默认", b0.form, "form.default");
   eq("A 队场上 24 艘", alive(core, 0), 24);
 
   const b1 = core.build.squads[1];
   eq("B 队是混编（盾墙队）", entriesOf(core, 1),
     "ship.std_falcon:12,ship.std_bulwark:8");
   eq("B 队场上 20 艘", alive(core, 1), 20);
-  eq("B 队阵型是密集", b1.form, "form.dense");
+  eq("B 队阵型是模板默认（现在只有一种）", b1.form, "form.default");
 
   eq("初始指挥值 816", core.snapshot().commandUsed, 816);
 }
@@ -110,16 +110,16 @@ console.log("\n[4] 改模板：把某型号从编制里删掉 → 那型全部�
 console.log("\n[5] 改模板：阵型重置成模板默认");
 {
   const core = mk();
-  const sw = core.command({ type: "setFormation", squadId: 1, form: "form.standard" });
+  const sw = core.command({ type: "setFormation", squadId: 1, form: "form.default" });
   ok("先把 B 队切到标准阵型", sw.ok === true, JSON.stringify(sw));
-  eq("当前阵型", core.build.squads[1].form, "form.standard");
+  eq("当前阵型", core.build.squads[1].form, "form.default");
 
   core.command({
     type: "editSquadTemplate", templateId: "squad.wall",
     entries: [{ ship: "ship.std_falcon", n: 12 }, { ship: "ship.std_bulwark", n: 8 }]
   });
-  eq("改模板后阵型回到默认（密集）", core.build.squads[1].form, "form.dense");
-  eq("sq.p 真的被改了", core.squads[1].p.sepRadius, 23);
+  eq("改模板后阵型回到默认", core.build.squads[1].form, "form.default");
+  eq("sq.p 真的被改了", core.squads[1].p.sepRadius, 22);
 }
 
 console.log("\n[6] 脱离模板 = 无编制小队：不受模板影响，也不能吸收");
@@ -165,13 +165,25 @@ console.log("\n[7] 混编队的吸收按型号分别补");
 console.log("\n[8] 阵型只能在编制解锁的范围里切");
 {
   const core = mk();
-  const bad = core.command({ type: "setFormation", squadId: 0, form: "form.guerrilla" });
+  const bad = core.command({ type: "setFormation", squadId: 0, form: "form.nope" });
   ok("没解锁的阵型被拒", bad.ok === false, JSON.stringify(bad));
-  eq("阵型没变", core.build.squads[0].form, "form.standard");
+  eq("阵型没变", core.build.squads[0].form, "form.default");
 
-  const good = core.command({ type: "setFormation", squadId: 0, form: "form.wide" });
+  // 现在只剩一个内置阵型，所以"能切"要靠自建一个新阵型来验
+  const created = core.command({ type: "createFormation", name: "测试阵型" });
+  ok("新建阵型", created.ok === true, JSON.stringify(created));
+  core.command({ type: "editFormation", formId: created.formId, key: "cohRadius", value: 200 });
+
+  // 没挂进编制的仍然被拒
+  const still = core.command({ type: "setFormation", squadId: 0, form: created.formId });
+  ok("编制里没解锁它，仍然被拒", still.ok === false, JSON.stringify(still));
+
+  // 挂进编制之后就能切了
+  const b0 = core.build.squads[0];
+  b0.formations = [...b0.formations, created.formId];
+  const good = core.command({ type: "setFormation", squadId: 0, form: created.formId });
   ok("解锁的阵型可以切", good.ok === true, JSON.stringify(good));
-  eq("sq.p.cohRadius 跟着换（大间距=200）", core.squads[0].p.cohRadius, 200);
+  eq("sq.p.cohRadius 跟着换", core.squads[0].p.cohRadius, 200);
 }
 
 console.log("\n[9] 改模板超指挥值会被拒");

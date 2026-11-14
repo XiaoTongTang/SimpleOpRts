@@ -33,47 +33,61 @@ console.log("\n[1] 每个阵营一个池子");
   eq("b.count 跟着实际舰数", core.build.squads[p0].count, 6);
 }
 
-console.log("\n[2] 解散：舰船退池、编制保留、指挥值不变");
+console.log("\n[2] 解散 = 删除小队实例（数据上完全不存在）");
 {
   const core = mk();
-  const p0 = core.poolOf(0);
   const usedBefore = core.snapshot().commandUsed;
-  const poolBefore = alive(core, p0);
+  const squadsBefore = core.build.squads.length;
+  const poolBefore = alive(core, core.poolOf(0));
+
+  core.command({ type: "setGoal", squadId: 0, x: 300, y: 300 });
+  ok("解散前有命令信标", core.squads[0].goal !== null);
 
   const r = core.command({ type: "disband", squadId: 0 });
   ok("解散成功", r.ok === true && r.moved === 24, JSON.stringify(r));
-  eq("A 队场上没船了", alive(core, 0), 0);
-  eq("24 艘进了池子", alive(core, p0), poolBefore + 24);
-  eq("编制保留", core.build.squads[0].count, 24);
-  eq("标记为已解散", core.build.squads[0].active, false);
+
+  eq("编制表少了一支", core.build.squads.length, squadsBefore - 1);
+  eq("运行时表同步缩短", core.squads.length, squadsBefore - 1);
+  eq("24 艘进了池子", alive(core, core.poolOf(0)), poolBefore + 24);
+
+  ok("A 队不存在了（id 0 现在是原来的 B 队）",
+    core.build.squads[0].key === "B", core.build.squads[0].key);
+  ok("快照里也找不到这支队", !core.snapshot().squads.some(s => s.key === "A"));
+  ok("右栏会看到的小队里没有 alive=0 且无编制的幽灵",
+    core.snapshot().squads.every(s => s.loose || s.count > 0));
+
+  // 重编号之后两条不变量必须仍然成立
+  let aligned = true;
+  for (let i = 0; i < core.build.squads.length; i++) {
+    if (core.build.squads[i].id !== i || core.squads[i].id !== i) aligned = false;
+  }
+  ok("两张表的 id 与下标仍然对齐", aligned);
+
+  ok("没有船指向不存在的小队",
+    core.units.every(u => u.squad >= 0 && u.squad < core.squads.length));
 
   eq("指挥值没变（船还在战场上）", core.snapshot().commandUsed, usedBefore);
-
-  const snap = core.snapshot();
-  const aSnap = snap.squads.find(s => s.id === 0);
-  ok("快照里仍然保留 A 队（方便重新组建）", !!aSnap);
-  ok("标记为已解散", aSnap && aSnap.active === false, JSON.stringify(aSnap && aSnap.active));
-  eq("编制还在", aSnap && aSnap.count, 24);
-  eq("场上活着的 0 艘", aSnap && aSnap.alive, 0);
-  const poolSnap = snap.squads.find(s => s.id === p0);
-  ok("池子还在快照里", !!poolSnap);
-  eq("池子的数量就是实际舰数", poolSnap.count, poolBefore + 24);
 }
 
-console.log("\n[3] 吸收：解散的队伍能原样收回来");
+console.log("\n[3] 解散之后：吸收作用在重编号后的队上，重建要靠一键建造");
 {
   const core = mk();
-  const p0 = core.poolOf(0);
+  core.build.modules = 60;
+  const squadsBefore = core.build.squads.length;
+
   core.command({ type: "disband", squadId: 0 });
 
+  // id 0 现在是原来的 B 队，满编 → 吸收被拒
   const r = core.command({ type: "absorb", squadId: 0 });
-  ok("吸收成功", r.ok === true && r.moved === 24, JSON.stringify(r));
-  eq("A 队恢复 24 艘", alive(core, 0), 24);
-  eq("重新启用了", core.build.squads[0].active, true);
-  eq("池子只剩原来的 6 艘", alive(core, p0), 6);
+  ok("解散后 id 0 指向下一支队（满编，拒绝吸收）", r.ok === false, JSON.stringify(r));
 
-  const snap = core.snapshot();
-  ok("快照里又有 A 队", snap.squads.some(s => s.id === 0));
+  // "再组建一支" = 全新实例，不是复活
+  const built = core.command({ type: "buildFromTemplate", templateId: "squad.assault", faction: 0 });
+  ok("一键建造成功", built.ok === true, JSON.stringify(built));
+  eq("小队数回到解散前", core.build.squads.length, squadsBefore);
+  const nb = core.build.squads[core.build.squads.length - 1];
+  ok("新队是末尾的新实例", nb.id === squadsBefore - 1, String(nb.id));
+  ok("新队有自己的 id 与下标", core.squads[nb.id].id === nb.id);
 }
 
 console.log("\n[4] 吸收只挑同型号，别型留在池子里");
@@ -81,17 +95,22 @@ console.log("\n[4] 吸收只挑同型号，别型留在池子里");
   const core = mk();
   const p0 = core.poolOf(0);
   core.build.modules = 60;
-  core.command({ type: "disband", squadId: 0 });                     // 24 艘矛隼进池
-  core.command({ type: "instantBuild", faction: 0, shipId: "ship.std_citadel", count: 2 });  // 2 艘堡垒级进池
 
-  eq("池里 24 艘矛隼", core.poolCountOf(0, core.sigOf("ship.std_falcon")), 24);
+  // A 队打掉 3 艘矛隼进池，同时造 2 艘堡垒级也进池
+  let lost = 0;
+  for (const u of core.units) {
+    if (u.squad === 0 && lost < 3) { u.squad = p0; lost++; }
+  }
+  core.command({ type: "instantBuild", faction: 0, shipId: "ship.std_citadel", count: 2 });
+
+  eq("池里 3 艘矛隼", core.poolCountOf(0, core.sigOf("ship.std_falcon")), 3);
   eq("池里 2 艘堡垒级", core.poolCountOf(0, core.sigOf("ship.std_citadel")), 2);
-  eq("池子共 32 艘", alive(core, p0), 32);
+  eq("池子共 11 艘（6 支援 + 3 矛隼 + 2 堡垒）", alive(core, p0), 11);
 
   const r = core.command({ type: "absorb", squadId: 0 });
-  ok("吸收成功", r.ok === true && r.moved === 24, JSON.stringify(r));
+  ok("只吸收同型号的 3 艘", r.ok === true && r.moved === 3, JSON.stringify(r));
   eq("堡垒级还留在池里", core.poolCountOf(0, core.sigOf("ship.std_citadel")), 2);
-  eq("池子剩 8 艘（6 支援 + 2 堡垒）", alive(core, p0), 8);
+  eq("池子剩 8 艘", alive(core, p0), 8);
 }
 
 console.log("\n[5] 池子本身不能被解散 / 不能被吸收");
@@ -142,7 +161,8 @@ console.log("\n[7] 池子的指挥值按实际舰船算");
 
   core.command({ type: "disband", squadId: 0 });
   const snap = core.snapshot();
-  const poolSnap = snap.squads.find(s => s.id === p0);
+  const p1 = core.poolOf(0);                     // 解散后池子的 id 会变，必须重算
+  const poolSnap = snap.squads.find(s => s.id === p1);
   ok("池子的 cost = Σ 每艘船的指挥值", poolSnap.cost > 6 * 4,
     `cost=${poolSnap.cost}`);
   eq("总指挥值不变", snap.commandUsed, used1);
