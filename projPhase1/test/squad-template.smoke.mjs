@@ -119,7 +119,7 @@ console.log("\n[5] 改模板：阵型重置成模板默认");
     entries: [{ ship: "ship.std_falcon", n: 12 }, { ship: "ship.std_bulwark", n: 8 }]
   });
   eq("改模板后阵型回到默认（密集）", core.build.squads[1].form, "form.dense");
-  eq("sq.p 真的被改了", core.squads[1].p.rRep, 35);
+  eq("sq.p 真的被改了", core.squads[1].p.sepRadius, 23);
 }
 
 console.log("\n[6] 脱离模板 = 无编制小队：不受模板影响，也不能吸收");
@@ -171,7 +171,7 @@ console.log("\n[8] 阵型只能在编制解锁的范围里切");
 
   const good = core.command({ type: "setFormation", squadId: 0, form: "form.wide" });
   ok("解锁的阵型可以切", good.ok === true, JSON.stringify(good));
-  eq("sq.p.rAtt 跟着换（大间距=200）", core.squads[0].p.rAtt, 200);
+  eq("sq.p.cohRadius 跟着换（大间距=200）", core.squads[0].p.cohRadius, 200);
 }
 
 console.log("\n[9] 改模板超指挥值会被拒");

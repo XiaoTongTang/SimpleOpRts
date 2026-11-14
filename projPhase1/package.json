@@ -9,7 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node serve.mjs 8100",
-    "test": "node test/core.smoke.mjs && node test/templates.smoke.mjs && node test/balance.audit.mjs && node test/support.smoke.mjs && node test/weapons.smoke.mjs && node test/library.smoke.mjs && node test/production.smoke.mjs && node test/unit-attrs.smoke.mjs && node test/scatter.smoke.mjs && node test/squad-template.smoke.mjs && node test/command.smoke.mjs && node test/camera.smoke.mjs && node test/determinism.smoke.mjs"
+    "test": "node test/core.smoke.mjs && node test/force-model.smoke.mjs && node test/wall.smoke.mjs && node test/templates.smoke.mjs && node test/balance.audit.mjs && node test/support.smoke.mjs && node test/weapons.smoke.mjs && node test/library.smoke.mjs && node test/production.smoke.mjs && node test/unit-attrs.smoke.mjs && node test/scatter.smoke.mjs && node test/squad-template.smoke.mjs && node test/command.smoke.mjs && node test/camera.smoke.mjs && node test/determinism.smoke.mjs",
+    "bench": "node test/behavior.bench.mjs"
   },
   "dependencies": {
     "pixi.js": "^8.22.0",

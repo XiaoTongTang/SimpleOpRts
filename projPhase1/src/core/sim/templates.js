@@ -1,8 +1,15 @@
 /**
- * 小队模板表
+ * 小队模板表（参数基准记录）
  * ---------------------------------------------------------------
+ * ⚠ **本文件当前没有被任何模块 import。**
+ *   core 实际使用的是 `data/formation-templates.js`（阵型）与
+ *   `sim/squad-layer.js` 的 `P_DEFS`（新建小队的默认值）。
+ *   这里保留下来只作为「六种战斗群各自该长什么样」的参数基准，
+ *   方便以后做兵种分化时抄数值。**不要在这里改完就以为线上变了。**
+ *
  * 每个模板 = 一套 Couzin 参数 + 武器 + 防御配置。
- * 只写要覆盖的项，其余用 P_DEFS 的默认值兜底。
+ * 数值来源：迁移设计 §3.1.2 的机械换算（F = w × SPD，SPD = 96）。
+ * ⚠ sepRadius 目前是**圆心距**（= 旧 rRep）；阶段 3 改成表面间隙后会减去 2 × r_ref。
  *
  * info 是页面上展示的三栏介绍，全部手写：
  *   weapon    武器
@@ -23,9 +30,11 @@ export const TEMPLATES = [
     },
     p: {
       // 密集、凝聚强、个体脆
-      rRep: 17, rOri: 46, rAtt: 86,
-      wSep: 1.50, wAli: 0.95, wCoh: 1.15,
-      r4: 80, r5: 300, wSeek: 1.50, wThreat: 1.50,
+      sepRadius: 5, alignRadius: 46, cohRadius: 86,
+      sepForce: 144, alignForce: 91, cohForce: 110,
+      threatForce: 144, seekForce: 144, commandForce: 127,
+      arriveR: 46, smallPushShare: 30,
+      r4: 80, r5: 300,
       members: 25, hp: 80, regen: 3.0
     }
   },
@@ -40,9 +49,11 @@ export const TEMPLATES = [
     },
     p: {
       // 厚重、抱团、正面硬顶
-      rRep: 30, rOri: 58, rAtt: 200,
-      wSep: 1.40, wAli: 0.70, wCoh: 0.7,
-      r4: 60, r5: 280, wSeek: 1.60, wThreat: 1.70,
+      sepRadius: 18, alignRadius: 58, cohRadius: 200,
+      sepForce: 134, alignForce: 67, cohForce: 67,
+      threatForce: 163, seekForce: 154, commandForce: 127,
+      arriveR: 46, smallPushShare: 30,
+      r4: 60, r5: 280,
       members: 12, hp: 290, regen: 7
     }
   },
@@ -57,9 +68,11 @@ export const TEMPLATES = [
     },
     p: {
       // 松散、远攻、不爱贴脸
-      rRep: 34, rOri: 64, rAtt: 120,
-      wSep: 1.00, wAli: 0.50, wCoh: 0.45,
-      r4: 200, r5: 350, wSeek: 0.85, wThreat: 1.20,
+      sepRadius: 22, alignRadius: 64, cohRadius: 120,
+      sepForce: 96, alignForce: 48, cohForce: 43,
+      threatForce: 115, seekForce: 82, commandForce: 127,
+      arriveR: 46, smallPushShare: 30,
+      r4: 200, r5: 350,
       members: 12, hp: 90, regen: 2.0
     }
   },
@@ -74,9 +87,11 @@ export const TEMPLATES = [
     },
     p: {
       // 激进、贴脸、追得狠
-      rRep: 22, rOri: 50, rAtt: 92,
-      wSep: 1.30, wAli: 1.00, wCoh: 0.80,
-      r4: 50, r5: 320, wSeek: 2.00, wThreat: 1.30,
+      sepRadius: 10, alignRadius: 50, cohRadius: 92,
+      sepForce: 125, alignForce: 96, cohForce: 77,
+      threatForce: 125, seekForce: 192, commandForce: 127,
+      arriveR: 46, smallPushShare: 30,
+      r4: 50, r5: 320,
       members: 15, hp: 40, regen: 2.0
     }
   },
@@ -91,9 +106,11 @@ export const TEMPLATES = [
     },
     p: {
       // 极厚极慢：高凝聚 + 高威胁，贴近就被推开，很难被切开
-      rRep: 35, rOri: 60, rAtt: 104,
-      wSep: 1.05, wAli: 0.50, wCoh: 1.45,
-      r4: 55, r5: 270, wSeek: 1.00, wThreat: 2.00,
+      sepRadius: 23, alignRadius: 60, cohRadius: 104,
+      sepForce: 101, alignForce: 48, cohForce: 139,
+      threatForce: 192, seekForce: 96, commandForce: 127,
+      arriveR: 46, smallPushShare: 30,
+      r4: 55, r5: 270,
       members: 15, hp: 320, regen: 9
     }
   },
@@ -108,9 +125,11 @@ export const TEMPLATES = [
     },
     p: {
       // 远程、松散、脆：靠射程和追踪吃饭，被贴脸就崩
-      rRep: 26, rOri: 56, rAtt: 110,
-      wSep: 1.05, wAli: 0.55, wCoh: 0.50,
-      r4: 180, r5: 340, wSeek: 0.75, wThreat: 1.30,
+      sepRadius: 14, alignRadius: 56, cohRadius: 110,
+      sepForce: 101, alignForce: 53, cohForce: 48,
+      threatForce: 125, seekForce: 72, commandForce: 127,
+      arriveR: 46, smallPushShare: 30,
+      r4: 180, r5: 340,
       members: 12, hp: 70, regen: 1.5
     }
   }
@@ -153,9 +172,11 @@ export const LOOSE_SQUAD = {
   weapon: "laser",
   hue: [205, 5],          // 直接用阵营色（蓝/红），再压暗降饱和
   p: {
-    rRep: 18, rOri: 46, rAtt: 92,
-    wSep: 1.40, wAli: 0.85, wCoh: 0.95,
-    r4: 110, r5: 320, wSeek: 1.10, wThreat: 1.55,
+    sepRadius: 6, alignRadius: 46, cohRadius: 92,
+    sepForce: 134, alignForce: 82, cohForce: 91,
+    threatForce: 149, seekForce: 106, commandForce: 127,
+    arriveR: 46, smallPushShare: 30,
+    r4: 110, r5: 320,
     members: 0, hp: 50, regen: 2.0
   }
 };

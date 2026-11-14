@@ -14,16 +14,33 @@
 import { rand } from "./rng.js";
 
 // ---------------------------------------------------------------
-// 每队独立的 Couzin 参数定义
+// 每队独立的 Couzin 参数定义（质量速度模型）
 // [key, 显示小数位, 默认值]
+//
+// 与旧表的对应（换算见 design/261114_1鸟群算法迁移/迁移设计.md §3.1.2）：
+//   wSep    → sepForce    = wSep    × SPD
+//   wAli    → alignForce  = wAli    × SPD
+//   wCoh    → cohForce    = wCoh    × SPD
+//   wThreat → threatForce = wThreat × SPD
+//   wSeek   → seekForce   = wSeek   × SPD
+//   omega × wCmd → commandForce
+//   rRep    → sepRadius    （**语义变了**：旧的是圆心距，新的是表面间隙）
+//   rOri    → alignRadius  （判据没变，直接沿用）
+//   rAtt    → cohRadius    （同上）
+//   G.arriveR   → arriveR         （全局下沉到小队：战术参数）
+//   沙盒全局     → smallPushShare （全局下沉到小队：谁围绕谁，是编队战术）
+//
+// ⚠ 阶段 2 的 sepRadius 仍然按**圆心距**填（= 旧 rRep），因为这一步只换力模型，
+//   单位半径还没进分离判据。阶段 3 会把它改成 `rRep − 2 × r_ref`，并让 u.radius 进入 gap。
 // ---------------------------------------------------------------
 export const P_DEFS = [
   // —— 移动 / 阵型（只被 group-layer 读取）——
-  ["wSep", 2, 1.40], ["wAli", 2, 0.85], ["wCoh", 2, 0.75],
-  ["omega", 2, 1.10], ["wCmd", 2, 1.20],
-  ["wThreat", 2, 1.50], ["wSeek", 2, 1.20],
+  ["sepForce", 0, 134], ["alignForce", 0, 82], ["cohForce", 0, 72],
+  ["threatForce", 0, 144], ["seekForce", 0, 115], ["commandForce", 0, 127],
+  ["sepRadius", 0, 12], ["alignRadius", 0, 52], ["cohRadius", 0, 96],
   ["r4", 0, 90], ["r5", 0, 300],
-  ["rRep", 0, 24], ["rOri", 0, 52], ["rAtt", 0, 96],
+  ["arriveR", 0, 46],
+  ["smallPushShare", 0, 30],
   ["members", 0, 24],
   // —— 战斗（只被 defense-system 读取，与移动完全解耦）——
   // 护盾充能/维修不在参数表里：那是 support-system 读的 abilities，来自装配
@@ -42,13 +59,14 @@ export const DEFAULT_P = makeParams();
 
 // ---------------------------------------------------------------
 // 全局参数（所有小队共用，不随小队变化）
+// 实际生效值写在 core.js 的 this.G；这里只作声明与文档。
 // ---------------------------------------------------------------
 export const GLOBAL_DEFS = [
-  // 移动
-  ["drag", 2, 0.30],
-  ["stallSpeed", 0, 60],
-  ["stallAccel", 0, 100],
-  ["arriveR", 0, 46]
+  ["damping", 2, 1.50],          // 粘性阻尼 λ（1/s），替代旧的 drag=0.30
+  ["mass", 2, 1.00],             // 全局质量：a = F / mass
+  ["boostSpeed", 0, 60],         // 低速助推阈值（沿用 stallSpeed）
+  ["boostForce", 0, 100],        // 低速助推力（沿用 stallAccel）
+  ["maxSpeedFactor", 2, 1.80]    // 安全阀：|v| ≤ SPD × 这个系数
 ];
 
 // ---------------------------------------------------------------

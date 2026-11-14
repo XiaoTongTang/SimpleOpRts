@@ -43,6 +43,12 @@ export function initUnit(u, rt) {
   u.weapon = u.weapons[0]?.id ?? "laser";      // 兼容别名，渲染/统计用
   u.hitR = rt.hitR === undefined ? DEFAULT_HIT_R : rt.hitR;   // 受击半径
 
+  // 迁移（每鸟半径）：受击半径同时就是**船体半径**。
+  // 一个数、一个来源：分离力的间隙判据、墙体硬碰撞、出生点检查、武器命中判定全用它。
+  // 注意 **不是** shieldHitR —— 那是"护盾层外扩半径"，目前没有任何代码读它。
+  u.radius = u.hitR;
+  u.mass = 1;                  // 每单位质量；有效质量 = u.mass × G.mass（默认都是 1）
+
   // 支援能力挂在「这一艘船」上，不再读小队
   u.abilities = rt.abilities || [];
 
@@ -102,6 +108,8 @@ export function retrofitUnit(u, rt) {
   u.weapons = buildWeaponStates(rt, u.weapons || []);   // 用槽位继承冷却
   u.weapon = u.weapons[0]?.id ?? "laser";
   u.hitR = rt.hitR === undefined ? DEFAULT_HIT_R : rt.hitR;
+  u.radius = u.hitR;                                   // 船体半径与受击半径永远同源
+  if (!(u.mass > 0)) u.mass = 1;
   u.abilities = rt.abilities || [];
   u.fireRate = rt.fireRate || 1;
   u.command = rt.command || 0;

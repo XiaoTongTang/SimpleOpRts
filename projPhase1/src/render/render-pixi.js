@@ -16,8 +16,10 @@ import { Application, Container, Graphics, Sprite } from "pixi.js";
 import { WorldRenderer } from "./renderer.js";
 import { FACTION_TINT, NEUTRAL_HUE, hpColor, hslHex } from "./palette.js";
 import { loadShipAtlas, variantOf, sizeOf } from "./ship-sprites.js";
+import { getChamferedCellPolygon } from "../core/sim/wall-geometry.js";
 
 const BG = 0x07090d;
+const WALL_FILL = 0x1b2733;
 
 // 血条（画法参数，不是游戏数值）
 const BAR_W = 14;
@@ -57,12 +59,13 @@ class PixiRenderer extends WorldRenderer {
 
     this.world = new Container();
     this.border = new Graphics();
+    this.walls = new Graphics();
     this.unitsLayer = new Container();
     this.bars = new Graphics();
     this.glow = new Graphics();
     this.glow.blendMode = "add";           // 特效和光束统一用叠加
 
-    this.world.addChild(this.border, this.unitsLayer, this.bars, this.glow);
+    this.world.addChild(this.border, this.walls, this.unitsLayer, this.bars, this.glow);
     app.stage.addChild(this.world);
 
     this.atlas = await loadShipAtlas();
@@ -87,12 +90,39 @@ class PixiRenderer extends WorldRenderer {
     this.world.scale.set(cam.zoom);
 
     this.drawBorder(view.world);
+    this.drawWalls(view);
     this.drawUnits(view);
     this.drawBars(view);
     this.drawFx(view);
     this.drawProjectiles(view.projectiles);
 
     this.app.render();
+  }
+
+  // ---------------- 墙体 ----------------
+  //
+  // 画的是**倒角多边形**，和碰撞用的是同一份几何（core/sim/wall-geometry.js）。
+  // 不能一边按方格画、一边按倒角算：玩家会看到"船离墙角还有半个格就被弹开"。
+  // 按 map.rev 缓存，换图才重画。
+
+  drawWalls(view) {
+    const map = view.map;
+    if (!map || !this.walls) return;
+    if (this._wallRev === map.rev) return;
+    this._wallRev = map.rev;
+
+    const g = this.walls;
+    g.clear();
+
+    for (let cy = 0; cy < map.rows; cy++) {
+      for (let cx = 0; cx < map.cols; cx++) {
+        if (!map.isWall(cx, cy)) continue;
+        const pts = getChamferedCellPolygon(map, cx, cy);
+        if (!pts) continue;
+        // 只填充不描边：相邻墙格共边，描边会画出一堆格子缝
+        g.poly(pts.flat()).fill({ color: WALL_FILL, alpha: 1 });
+      }
+    }
   }
 
   // ---------------- 战场底纹 ----------------

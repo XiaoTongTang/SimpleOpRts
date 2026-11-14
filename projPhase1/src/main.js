@@ -11,6 +11,7 @@
  */
 
 import { GameCore } from "./core/core.js";
+import { blankMap } from "./core/map.js";
 import { createPixiRenderer } from "./render/render-pixi.js";
 import { gameStore, actions } from "./store/gameStore.js";
 import { loadShips, saveShips } from "./store/persist.js";
@@ -28,9 +29,9 @@ async function boot() {
   const renderer = await createPixiRenderer(cvs);
 
   // 先读方案库：玩家的设计跨局保留，重开不清空
+  // 世界尺寸由地图派生：这里只给出"默认地图"是什么，core 从它读出 width / height
   const core = new GameCore({
-    width: WORLD_W,
-    height: WORLD_H,
+    map: blankMap(WORLD_W, WORLD_H, 8, "默认战场"),
     ships: loadShips()
   });
   const bridge = createBridge(core, gameStore, { hz: 10 });

@@ -19,6 +19,8 @@ import {
 } from "./sim/squad-layer.js";
 import { stepUnits } from "./sim/group-layer.js";
 import { Grid } from "./sim/spatial.js";
+import { blankMap, parseMapDocument, DEFAULT_CELL_SIZE } from "./map.js";
+import { resolveUnitWall } from "./sim/wall-collision.js";
 import { stepWeapons } from "./sim/weapon-system.js";
 import { applyDamage, stepRegen, applyCombatParams, initUnit, retrofitUnit,
          unitSignature, runtimeSignature } from "./sim/defense-system.js";
@@ -55,22 +57,36 @@ export class GameCore {
   // ------------------------------------------------------------------
 
   reset(opts = {}) {
-    const width = opts.width ?? this.width ?? 1280;
-    const height = opts.height ?? this.height ?? 720;
+    // 世界尺寸由地图派生。`opts.map` 优先；否则按 `opts.width/height` 沿用旧地图或合成一张空图。
+    // 注意：空白地图的 width/height 保持调用方给的值（格数向上取整），所以世界大小不会因为
+    // 「700 不是 8 的倍数」而悄悄变成 704。
+    const wantW = opts.width ?? (this.map ? this.map.width : 1280);
+    const wantH = opts.height ?? (this.map ? this.map.height : 720);
+    let map = opts.map || null;
+    if (!map) {
+      map = (this.map && this.map.width === wantW && this.map.height === wantH)
+        ? this.map
+        : blankMap(wantW, wantH, DEFAULT_CELL_SIZE);
+    }
+    this.map = map;
 
     // 世界（地图）大小：固定，不跟窗口/视口走。视口只决定相机能看多少
-    this.width = width;
-    this.height = height;
+    this.width = map.width;
+    this.height = map.height;
 
     // 相机是「观察状态」，不是战斗状态：zoom = 0 表示自动铺满视口
-    if (!this.cam) this.cam = { x: width / 2, y: height / 2, zoom: 0 };
+    if (!this.cam) this.cam = { x: this.width / 2, y: this.height / 2, zoom: 0 };
 
     /** 随机种子：同一个 seed 每次重开都是同一场战斗 */
     this.seed = seedRng(opts.seed ?? this.seed ?? 1);
 
-    /** 全局参数：只剩移动相关。战斗参数全部下沉到小队 p / 船体模板 */
+    /** 全局移动参数。飞行员的个体差异全部下沉到小队 p，这里只剩"物理"。 */
     this.G = {
-      drag: 0.30, stallSpeed: 60, stallAccel: 100, arriveR: 46
+      damping: 1.50,        // 粘性阻尼 λ（1/s），替代旧的 drag=0.30
+      mass: 1.00,           // 全局质量：a = F / mass（迁移起点取 1，不改变任何东西）
+      boostSpeed: 60,       // 低速助推阈值
+      boostForce: 100,      // 低速助推力
+      maxSpeedFactor: 1.80  // 安全阀：|v| ≤ SPD × 这个系数
     };
 
     this.squads = makeSquads();
@@ -78,7 +94,7 @@ export class GameCore {
     this.projectiles = [];
     this.fx = [];
     this.hits = [];
-    this.grid = new Grid(Math.max(1, width), Math.max(1, height));
+    this.grid = new Grid(Math.max(1, this.width), Math.max(1, this.height));
 
     /** 构筑状态：权威 */
     this.ships = opts.ships && Object.keys(opts.ships).length
@@ -200,6 +216,32 @@ export class GameCore {
   }
 
   // ------------------------------------------------------------------
+  // 地图
+  // ------------------------------------------------------------------
+  //
+  // 世界尺寸由地图派生（见 ./map.js）。校验必须在 core 里做：
+  // UI 只负责把文件读成 JSON 对象，判断"这张图能不能用"是游戏规则。
+
+  /**
+   * 换地图。换图 = 重开一局：单位重摆、所有流场失效、相机回到铺满整图。
+   * 构筑状态（编制 / 方案库）跨局保留，和 reset 一致。
+   */
+  cmdImportMap(cmd) {
+    const r = parseMapDocument(cmd.data, cmd.name);
+    if (!r.ok) return reject(r.reasons);
+
+    this.reset({ map: r.map, seed: this.seed });
+    this.cam = { x: this.width / 2, y: this.height / 2, zoom: 0 };
+    return {
+      ok: true,
+      cols: r.map.cols,
+      rows: r.map.rows,
+      cellSize: r.map.cellSize,
+      floor: r.map.floorCount()
+    };
+  }
+
+  // ------------------------------------------------------------------
   // 单位战斗属性
   // ------------------------------------------------------------------
   //
@@ -231,6 +273,19 @@ export class GameCore {
     if (!rt) return null;
     const u = { squad: squadId, x, y, vx: 0, vy: 0, alpha: 0, cAll: 0 };
     initUnit(u, rt);
+    this.settleUnit(u);
+    return u;
+  }
+
+  /**
+   * 把一个刚放下的单位从墙里挤出来。
+   * 出生点、生产线出锅、吸收散兵、改编制补人 —— 所有"凭空出现"的船都要过这一道，
+   * 否则它会以 `radius + 2px` 的位移被弹出来（大船尤其明显）。
+   * 不消耗随机数，所以不影响确定性。
+   */
+  settleUnit(u) {
+    if (!u || !this.map) return u;
+    resolveUnitWall(this.map, u, u.radius || 0);
     return u;
   }
 
@@ -338,7 +393,7 @@ export class GameCore {
     computeCenters(this.units, this.squads);
 
     // 第二遍：按每艘船自己的方案初始化战斗属性
-    for (const it of pending) initUnit(it.u, this.runtimeOf(it.shipId));
+    for (const it of pending) { initUnit(it.u, this.runtimeOf(it.shipId)); this.settleUnit(it.u); }
 
     // 池子没有编制，count 直接同步成实际舰数
     for (const b of this.build.squads) if (b.loose) this.syncPoolCount(b.id);
@@ -350,22 +405,15 @@ export class GameCore {
 
   step(dt) {
     if (this.paused) return;
-    const W = this.width, H = this.height;
 
     // 0. 生产（造好的船这一帧就能动）
     this.stepProduction(dt);
 
-    // 1. 集群移动
+    // 1. 集群移动（位置推进 + 墙体硬碰撞都在 stepUnits 内部完成，
+    //    这里不再有任何 [8, W-8] 的硬夹 —— 墙的边界由 map 的世界边框处理）
     computeCenters(this.units, this.squads);
     computeSquadTargets(this.units, this.squads);
-    stepUnits(this.units, this.squads, this.G, dt, W, H);
-
-    for (const u of this.units) {
-      if (u.y < 8) { u.y = 8; if (u.vy < 0) u.vy = -u.vy * 0.3; }
-      if (u.y > H - 8) { u.y = H - 8; if (u.vy > 0) u.vy = -u.vy * 0.3; }
-      if (u.x < 8) { u.x = 8; if (u.vx < 0) u.vx = -u.vx * 0.3; }
-      if (u.x > W - 8) { u.x = W - 8; if (u.vx > 0) u.vx = -u.vx * 0.3; }
-    }
+    stepUnits(this.units, this.squads, this.G, dt, this.width, this.height, this.map);
 
     // 2. 自然恢复（血 + 盾，只作用自己）
     stepRegen(this.units, dt);
@@ -459,6 +507,7 @@ export class GameCore {
     return {
       width: this.width,
       height: this.height,
+      map: this.map,
       camera: this.cameraView(),
       world: { w: this.width, h: this.height },
       bases: [],       // 阶段一未接基地/防御塔
@@ -732,6 +781,9 @@ export class GameCore {
         this.reset({ width: this.width, height: this.height });
         return { ok: true };
 
+      // 换地图：等于重开一局（构筑与方案库跨局保留，和 reset 一致）
+      case "importMap": return this.cmdImportMap(cmd);
+
       // 第一档：只改参数，直接写，下一帧生效
       case "setParam": {
         const sq = this.squads[cmd.squadId];
@@ -849,7 +901,7 @@ export class GameCore {
     // 新造的船在 push 完之后统一初始化（保持随机数顺序）。
     const rt = this.runtimeOf(nextShipId);
     resizeSquad(this.units, this.squads, id, nextCount, this.width, this.height,
-      u => initUnit(u, rt));
+      u => { initUnit(u, rt); this.settleUnit(u); });
 
     // 血量为比例缩放，新单位补 initCombat —— 所以改配置不会让整队满血复活
     applyCombatParams(this.units, this.squads, id);
@@ -1301,7 +1353,7 @@ export class GameCore {
       this.units.push(u);
       fresh.push(u);
     }
-    for (const u of fresh) initUnit(u, rt);
+    for (const u of fresh) { initUnit(u, rt); this.settleUnit(u); }
 
     computeCenters(this.units, this.squads);
     this.syncPoolCount(poolId);
@@ -1519,7 +1571,7 @@ export class GameCore {
         fresh.push({ u, rt });
       }
     }
-    for (const it of fresh) initUnit(it.u, it.rt);
+    for (const it of fresh) { initUnit(it.u, it.rt); this.settleUnit(it.u); }
 
     this.build.modules -= ships;
     computeCenters(this.units, this.squads);

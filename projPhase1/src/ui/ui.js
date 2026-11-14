@@ -72,6 +72,8 @@ export function mountUI({ store, bridge }) {
         <div class="foot">
           <button class="btn" id="btn-pause">暂停</button>
           <button class="btn" id="btn-reset">重开</button>
+          <button class="btn" id="btn-map">导入地图</button>
+          <input type="file" id="map-file" accept=".json,application/json" hidden />
         </div>
       </aside>
 
@@ -223,6 +225,30 @@ export function mountUI({ store, bridge }) {
   el("btn-reset").addEventListener("click", () => {
     selected.clear();
     bridge.run({ type: "reset" });
+  });
+
+  // ---- 导入地图 ----
+  // UI 只负责"把文件读成 JSON 对象"；能不能用、哪里不合法，全部由 core 判定并回 reasons。
+  el("btn-map").addEventListener("click", () => el("map-file").click());
+  el("map-file").addEventListener("change", async (ev) => {
+    const input = ev.target;
+    const file = input.files && input.files[0];
+    input.value = "";                        // 允许重复选同一个文件
+    if (!file) return;
+
+    let data;
+    try {
+      data = JSON.parse(await file.text());
+    } catch (err) {
+      store.getState().actions.message("error", "JSON 解析失败：" + err.message);
+      return;
+    }
+
+    const r = bridge.run({ type: "importMap", data, name: file.name });
+    if (r && r.ok) {
+      selected.clear();
+      bridge.camera({ fit: true });
+    }
   });
 
   // ---- 构筑入口：切换到舰船设计 / 小队构筑 ----
