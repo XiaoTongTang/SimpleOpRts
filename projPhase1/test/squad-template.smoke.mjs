@@ -12,6 +12,7 @@
 
 import { GameCore } from "../src/core/core.js";
 import { SQUAD_TEMPLATES } from "../src/core/data/squad-templates.js";
+import { FORMATIONS } from "../src/core/data/formation-templates.js";
 import { unitSignature } from "../src/core/sim/defense-system.js";
 
 let pass = 0, fail = 0;
@@ -119,7 +120,7 @@ console.log("\n[5] 改模板：阵型重置成模板默认");
     entries: [{ ship: "ship.std_falcon", n: 12 }, { ship: "ship.std_bulwark", n: 8 }]
   });
   eq("改模板后阵型回到默认", core.build.squads[1].form, "form.default");
-  eq("sq.p 真的被改了", core.squads[1].p.sepRadius, 22);
+  eq("sq.p 真的被改了", core.squads[1].p.sepRadius, FORMATIONS["form.default"].p.sepRadius);
 }
 
 console.log("\n[6] 脱离模板 = 无编制小队：不受模板影响，也不能吸收");

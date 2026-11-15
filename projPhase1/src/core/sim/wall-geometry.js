@@ -12,16 +12,20 @@
  */
 
 /**
- * 切进深度，单位是"格长的倍数"。**取整格，与沙盒一致。**
+ * 倒角**没有"深度"这个参数**：一格只要触发倒角，就固定切掉一半。
  *
- * t = 1 时切面正好从格的一个角连到对角：暴露角被完整切掉，墙角是干净的 45° 斜面。
- * 厚墙只削掉一层斜面；薄墙（2×2 方块、1 格厚墙、L 拐角）会被削细一些 ——
- * 那是**地图设计工具该操心的事**（别画太薄的墙），游戏内不判定墙还剩多少面积。
+ * 几何写死成一条对角线（格左上角为原点、C = cellSize）：
+ *   TL 角保留 (x - left) + (y - top) >= C      —— 切线从 (left, top+C) 连到 (left+C, top)
+ * 所以一个暴露角正好掉 **半格面积**，切面长度是 C × √2。
  *
+ * 为什么不做参数：倒角只是"把 90° 墙角磨掉"，磨多少不该是可调项；
+ * 它以**格**为单位表达，于是整张地图等比放大时，斜面也跟着等比变长（格长 8 → 11.3 px，
+ * 格长 24 → 33.9 px）。这与"世界尺寸 = 格数 × 格长"是同一件事，不需要第二个开关。
+ *
+ * 薄墙被削细是地图设计的事（别画太薄的墙），游戏内不判定墙还剩多少面积。
  * 唯一必须兜住的是**孤立单格**：四个角全是暴露角，切完就没有多边形、没有碰撞，
  * 船能直接穿过去。所以四邻全空时不切（见 getWallChamferMask）。
  */
-export const CHAMFER_DEPTH_CELLS = 1;
 
 /** 四个角的位掩码 */
 export const CORNER_TL = 1;
@@ -88,7 +92,7 @@ export function getChamferedCellPolygon(map, cx, cy) {
   if (!map.isWall(cx, cy)) return null;
 
   const C = map.cellSize;
-  const t = C * CHAMFER_DEPTH_CELLS;
+  const t = C;                                  // 固定切一半：切线就是对角线
   const left = cx * C, top = cy * C;
   const right = left + C, bottom = top + C;
 

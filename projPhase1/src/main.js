@@ -11,7 +11,9 @@
  */
 
 import { GameCore } from "./core/core.js";
-import { blankMap, DEFAULT_WORLD_W, DEFAULT_WORLD_H } from "./core/map.js";
+import {
+  blankMap, DEFAULT_WORLD_COLS, DEFAULT_WORLD_ROWS, DEFAULT_CELL_SIZE
+} from "./core/map.js";
 import { createPixiRenderer } from "./render/render-pixi.js";
 import { gameStore, actions } from "./store/gameStore.js";
 import { loadShips, saveShips } from "./store/persist.js";
@@ -20,18 +22,18 @@ import { mountUI } from "./ui/ui.js";
 
 const FIXED = 1 / 60;
 
-// 地图是固定大小的：窗口怎么变都不动它，取景靠相机（滚轮缩放 / 中键拖拽 / 小地图）
-const WORLD_W = DEFAULT_WORLD_W;
-const WORLD_H = DEFAULT_WORLD_H;
-
 async function boot() {
   const cvs = document.getElementById("c");
   const renderer = await createPixiRenderer(cvs);
 
   // 先读方案库：玩家的设计跨局保留，重开不清空
-  // 世界尺寸由地图派生：这里只给出"默认地图"是什么，core 从它读出 width / height
+  //
+  // 世界尺寸 = 格数 × 格长：
+  //   格数默认 250×150，格长默认 8 px → 2000×1200
+  //   把 `DEFAULT_CELL_SIZE` 改成 24 → 6000×3600（同一张图，等比放大 3 倍）
+  // 窗口怎么变都不动世界，取景靠相机（滚轮缩放 / 中键拖拽 / 小地图）。
   const core = new GameCore({
-    map: blankMap(WORLD_W, WORLD_H, 8, "默认战场"),
+    map: blankMap(DEFAULT_WORLD_COLS, DEFAULT_WORLD_ROWS, DEFAULT_CELL_SIZE, "默认战场"),
     ships: loadShips()
   });
   const bridge = createBridge(core, gameStore, { hz: 10 });

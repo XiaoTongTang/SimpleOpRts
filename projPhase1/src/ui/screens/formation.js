@@ -316,17 +316,21 @@ export function mountFormation(root, { store, bridge, catalog, onBack }) {
 
   async function startPreview() {
     const { GameCore } = await import("../../core/core.js");
-    const { DEFAULT_WORLD_W, DEFAULT_WORLD_H } = await import("../../core/map.js");
+    const {
+      DEFAULT_WORLD_COLS, DEFAULT_WORLD_ROWS, DEFAULT_CELL_SIZE
+    } = await import("../../core/map.js");
     const { createPixiRenderer } = await import("../../render/render-pixi.js");
 
     const canvas = el("fm-canvas");
     simRenderer = await createPixiRenderer(canvas);
-    // ⚠ 世界尺寸必须和战斗界面一致。两边 fit 之后的"每世界像素占多少屏幕像素"才可比，
-    //   否则同一套 Couzin 参数在预览里会显得快/慢。之前这里没给尺寸 → 默认 1280×720，
+    // ⚠ 格数与格长必须和战斗界面一致（两边都取 map.js 的默认值）。
+    //   世界尺寸 = 格数 × 格长，两边同源之后，"每世界像素占多少屏幕像素"才可比，
+    //   否则同一套 Couzin 参数会显得快/慢。之前这里没给尺寸 → 默认 1280×720，
     //   而战场是 2000×1200，光这一项就让预览的缩放比大了 1.4 倍。
     sim = new GameCore({
-      width: DEFAULT_WORLD_W,
-      height: DEFAULT_WORLD_H,
+      cols: DEFAULT_WORLD_COLS,
+      rows: DEFAULT_WORLD_ROWS,
+      cell: DEFAULT_CELL_SIZE,
       build: previewBuild(),
       seed: 7
     });

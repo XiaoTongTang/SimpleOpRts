@@ -42,7 +42,7 @@ console.log("\n[2] 阵型库是每个 core 一份");
   ok("只剩 1 个内置阵型", Object.keys(a.formations).length === 1, String(Object.keys(a.formations).length));
   a.command({ type: "editFormation", formId: "form.default", key: "sepForce", value: 200 });
   eq("A 改了", a.formations["form.default"].p.sepForce, 200);
-  eq("B 没被污染", b.formations["form.default"].p.sepForce, 60);
+  eq("B 没被污染", b.formations["form.default"].p.sepForce, FORMATIONS["form.default"].p.sepForce);
 
   a.command({ type: "reset", width: 1200, height: 700, seed: 5 });
   eq("reset 之后改动还在（设计数据不清空）", a.formations["form.default"].p.sepForce, 200);

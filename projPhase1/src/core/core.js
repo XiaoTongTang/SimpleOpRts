@@ -20,7 +20,10 @@ import {
 } from "./sim/squad-layer.js";
 import { stepUnits } from "./sim/group-layer.js";
 import { Grid } from "./sim/spatial.js";
-import { blankMap, parseMapDocument, DEFAULT_CELL_SIZE } from "./map.js";
+import {
+  blankMap, parseMapDocument, clampCellSize,
+  DEFAULT_WORLD_COLS, DEFAULT_WORLD_ROWS, DEFAULT_CELL_SIZE
+} from "./map.js";
 import { resolveUnitWall } from "./sim/wall-collision.js";
 import { buildFlowField, FlowCache, targetCellOf } from "./sim/flow-field.js";
 import { stepWeapons } from "./sim/weapon-system.js";
@@ -71,20 +74,38 @@ export class GameCore {
   // ------------------------------------------------------------------
 
   reset(opts = {}) {
-    // 世界尺寸由地图派生。`opts.map` 优先；否则按 `opts.width/height` 沿用旧地图或合成一张空图。
-    // 注意：空白地图的 width/height 保持调用方给的值（格数向上取整），所以世界大小不会因为
-    // 「700 不是 8 的倍数」而悄悄变成 704。
-    const wantW = opts.width ?? (this.map ? this.map.width : 1280);
-    const wantH = opts.height ?? (this.map ? this.map.height : 720);
+    // 世界尺寸由**地图**派生（宽度 = 格数 × 格长），不再是独立状态。
+    // 给法优先级从上到下：
+    //   1. opts.map               —— 一张现成的地图（导入 / 测试）
+    //   2. opts.cols/rows[/cell]  —— 格数（+ 格长），合成一张空图
+    //   3. opts.width/height      —— **px 便捷入口**，只给测试/工具用：
+    //                                换算成格数（向上取整），所以世界尺寸可能比分给的多不到一格
+    //   4. 都不给                  —— 沿用当前地图（reset 就是"同一张图重开一局"）
+    const cur = this.map;
+    const cell = clampCellSize(
+      opts.cell ?? (cur ? cur.cellSize : DEFAULT_CELL_SIZE));
+
     let map = opts.map || null;
-    if (!map) {
-      map = (this.map && this.map.width === wantW && this.map.height === wantH)
-        ? this.map
-        : blankMap(wantW, wantH, DEFAULT_CELL_SIZE);
+    if (!map && (opts.cols != null || opts.rows != null)) {
+      map = blankMap(
+        opts.cols ?? (cur ? cur.cols : DEFAULT_WORLD_COLS),
+        opts.rows ?? (cur ? cur.rows : DEFAULT_WORLD_ROWS),
+        cell
+      );
     }
+    if (!map && (opts.width != null || opts.height != null)) {
+      const w = opts.width ?? (cur ? cur.width : DEFAULT_WORLD_COLS * cell);
+      const h = opts.height ?? (cur ? cur.height : DEFAULT_WORLD_ROWS * cell);
+      map = blankMap(Math.ceil(w / cell), Math.ceil(h / cell), cell);
+    }
+    if (!map && cur) {
+      // 格长没变就沿用原图；变了就按新格长重造同样格数的一张空图
+      map = cell === cur.cellSize ? cur : blankMap(cur.cols, cur.rows, cell, cur.name);
+    }
+    if (!map) map = blankMap(DEFAULT_WORLD_COLS, DEFAULT_WORLD_ROWS, cell);
     this.map = map;
 
-    // 世界（地图）大小：固定，不跟窗口/视口走。视口只决定相机能看多少
+    // 世界尺寸：**派生量**（cols × cellSize）。改格长它就跟着变，这里只是缓存成字段方便读。
     this.width = map.width;
     this.height = map.height;
 
@@ -268,6 +289,15 @@ export class GameCore {
       floor: r.map.floorCount()
     };
   }
+
+  /**
+   * 换格长（比例尺）**没有运行时命令**。
+   *
+   * 格长是"一格等于多少 PX"，也就是整张地图的比例尺：改它意味着世界从 2000×1200 变成
+   * 6000×3600 这种量级变化，属于"换一张世界"，不是一局之内能发生的事。
+   * 所以入口只有一个：改 `map.js` 的 `DEFAULT_CELL_SIZE` 然后重新启动
+   * （见 design/261115_1地图相关测试复盘/05-技术设计-格长即比例尺.md D3）。
+   */
 
   // ------------------------------------------------------------------
   // 单位战斗属性
@@ -657,6 +687,15 @@ export class GameCore {
       t: this.time,
       paused: this.paused,
       winner: this.winner,
+      // 地图元信息：格数（权威）+ 格长（比例尺）→ 世界尺寸（派生）
+      map: {
+        cols: this.map.cols,
+        rows: this.map.rows,
+        cell: this.map.cellSize,
+        width: this.width,
+        height: this.height,
+        name: this.map.name
+      },
       unitCount: this.units.length,
       modules: Math.floor(this.build.modules),
       moduleCap: this.moduleCap,
@@ -826,7 +865,8 @@ export class GameCore {
       case "setCamera": return this.cmdSetCamera(cmd);
 
       case "reset":
-        this.reset({ width: this.width, height: this.height });
+        // 同一张图重开一局（地图、格长都不动）
+        this.reset({ seed: this.seed });
         return { ok: true };
 
       // 换地图：等于重开一局（构筑与方案库跨局保留，和 reset 一致）

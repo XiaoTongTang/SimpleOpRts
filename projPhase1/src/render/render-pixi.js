@@ -144,15 +144,22 @@ class PixiRenderer extends WorldRenderer {
    * 以前这里是写死的 STEP = 48，而地图格是 8 —— 画面上一格底下其实是 6×6 个真实格，
    * 看墙、看寻路都会误判尺度。
    *
-   * 8px 的格在全图缩放下只有 ~3.5 屏幕像素，所以线要压得很淡；zoom 变大时它才读得出是格子。
+   * 格长由 `DEFAULT_CELL_SIZE` 决定（比例尺实验只改那一个数）。所以这里按**当前缩放**挑线距：
+   * 一格在屏幕上不足 4 px 时就不画那一格，而是每 2 / 4 / 8 格画一条。
+   * 否则格长 4 px、全图缩放 0.45 时，一格只有 1.8 屏幕像素 —— 画出来是一层灰雾而不是网格。
    */
   drawBorder(view) {
     const map = view.map;
     const world = view.world;
     const cell = map && map.cellSize ? map.cellSize : 0;
+    const zoom = view.camera && view.camera.zoom > 0 ? view.camera.zoom : 1;
+
+    // 屏幕上至少 4 px 才画线，否则翻倍
+    let step = cell;
+    while (step > 0 && step * zoom < 4) step *= 2;
 
     const g = this.border;
-    const key = `${world.w}x${world.h}:${cell}:${map ? map.rev : 0}`;
+    const key = `${world.w}x${world.h}:${cell}:${step}:${map ? map.rev : 0}`;
     if (this._bgKey === key) return;
     this._bgKey = key;
 
@@ -162,13 +169,13 @@ class PixiRenderer extends WorldRenderer {
     // 地图本体：比画布外圈稍亮一点，缩到全图时能一眼看出战场边界
     g.rect(0, 0, W, H).fill({ color: 0x0a1018, alpha: 1 });
 
-    // 真实方格
-    if (cell > 0) {
+    // 真实方格（线距已按缩放放大，画的就是"每 N 格一条"）
+    if (step > 0) {
       const grid = { color: 0x5a82aa, alpha: 0.09, width: 1 };
-      for (let x = cell; x < W; x += cell) {
+      for (let x = step; x < W; x += step) {
         g.moveTo(x, 0).lineTo(x, H).stroke(grid);
       }
-      for (let y = cell; y < H; y += cell) {
+      for (let y = step; y < H; y += step) {
         g.moveTo(0, y).lineTo(W, y).stroke(grid);
       }
     }

@@ -4,28 +4,57 @@
  * 职责：只描述"哪里是墙、哪里是地"，以及把世界坐标换算成格子下标。
  * 不做：碰撞求解、寻路、渲染。那三件事都读本层，但都不改它。
  *
- * 设计见 design/261114_1鸟群算法迁移/迁移设计.md §3.5。
+ * ## 唯一的口径（设计见 design/261115_1地图相关测试复盘/05-技术设计-格长即比例尺.md）
  *
- * 一条关键约定：
- *   **世界尺寸由地图派生**，但 `width/height` 不强制等于 `cols × cellSize`。
- *   由像素尺寸合成的空图会向上取整格数（cols = ceil(width / cellSize)），
- *   而 `width` 仍保持调用方给的值。这样 `new GameCore({ width: 1000, height: 700 })`
- *   在迁入地图层之后**世界大小一位都不变**（700 不是 8 的倍数，强行取整会变成 704）。
- *   外部 JSON 地图则相反：cols/rows 是权威，width = cols × cellSize。
+ * **格数是权威，世界尺寸是派生量。**
+ *
+ *   width  = cols × cellSize        （px）
+ *   height = rows × cellSize        （px）
+ *
+ * `cellSize` 是"一格等于多少 PX"，也就是**整张地图的比例尺**：
+ * 同一张 250×150 的图，格长 8 → 2000×1200 px；格长 24 → 6000×3600 px。
+ * 格子数、墙的格子数据、流场要算的格数**一个都不变**，只是每一格变大。
+ *
+ * PX 仍是全局唯一的长度单位：单位半径、射程、速度、Couzin 半径都不随格长变，
+ * 变的只是"这些东西相对地图有多大"。
  */
 
 /**
- * 默认世界尺寸（px）。
+ * 默认战场的**格数**（不是 px）。
  * 战斗界面与阵型编辑的预览**必须用同一把尺**，否则同一套 Couzin 参数在两个界面里
  * 会因为"每世界像素占多少屏幕像素"不同而看着不一样快。放这里是为了别再各写一份。
+ *
+ * 250×150 在格长 8 时正好是老的 2000×1200。
  */
-export const DEFAULT_WORLD_W = 2000;
-export const DEFAULT_WORLD_H = 1200;
+export const DEFAULT_WORLD_COLS = 250;
+export const DEFAULT_WORLD_ROWS = 150;
 
-/** 默认格长（px）。8 是流场代价与碰撞精度的折中，实测见迁移设计 §3.4.4。 */
-export const DEFAULT_CELL_SIZE = 8;
+/**
+ * 地图格长（px / 格）—— **比例尺的唯一开关，改这一个数就行**。
+ *
+ * 8 → 24 的意思不是"网格变粗"，而是"整张地图等比放大 3 倍"：
+ *   格长 8  ：250×150 格 = 2000×1200 px，单张流场约 7 ms
+ *   格长 24 ：250×150 格 = 6000×3600 px，单张流场仍然约 7 ms（格数没变）
+ *
+ * 所以它调的是**尺度**，不是性能：船还是半径 6~23 px、射程还是 250~480 px、
+ * 巡航速度还是 96 px/s，但在一片 3 倍大的战场上它们都"变小"了 3 倍。
+ *
+ * 换格长的唯一方式就是改这个值然后重新启动（运行时没有换格长的入口）。
+ */
+export const DEFAULT_CELL_SIZE = 32;
 
-/** 地图尺寸上限（防止导入一张离谱的图把内存打爆） */
+/** 格长的合法区间。只是防手滑，不是玩法参数。 */
+export const CELL_SIZE_MIN = 4;
+export const CELL_SIZE_MAX = 256;
+
+/** 把任意输入夹成合法格长（取整；超范围贴边，垃圾值回默认） */
+export function clampCellSize(n) {
+  const v = Math.round(Number(n));
+  if (!Number.isFinite(v) || v <= 0) return DEFAULT_CELL_SIZE;
+  return Math.min(CELL_SIZE_MAX, Math.max(CELL_SIZE_MIN, v));
+}
+
+/** 地图格数上限（防的是内存与建场耗时，与"世界多宽"无关） */
 export const MAX_MAP_COLS = 1024;
 export const MAX_MAP_ROWS = 1024;
 export const MAX_MAP_CELLS = 200000;
@@ -36,17 +65,13 @@ let REV = 0;
 export class MapGrid {
   /**
    * @param {object} o
-   * @param {number} o.width   世界宽（px）
-   * @param {number} o.height  世界高（px）
-   * @param {number} o.cols    列数
-   * @param {number} o.rows    行数
-   * @param {number} o.cellSize 格长（px）
+   * @param {number} o.cols    列数（权威）
+   * @param {number} o.rows    行数（权威）
+   * @param {number} o.cellSize 格长（px / 格）
    * @param {Uint8Array} o.walls 1 = 墙，0 = 空地
    * @param {string} [o.name]
    */
-  constructor({ width, height, cols, rows, cellSize, walls, name }) {
-    this.width = width;
-    this.height = height;
+  constructor({ cols, rows, cellSize, walls, name }) {
     this.cols = cols;
     this.rows = rows;
     this.cellSize = cellSize;
@@ -54,6 +79,12 @@ export class MapGrid {
     this.name = name || "未命名地图";
     this.rev = ++REV;
   }
+
+  /** 世界宽（px）。派生量，不是独立状态 —— 改格长它就跟着变。 */
+  get width() { return this.cols * this.cellSize; }
+
+  /** 世界高（px）。派生量。 */
+  get height() { return this.rows * this.cellSize; }
 
   get cellCount() { return this.cols * this.rows; }
 
@@ -101,18 +132,16 @@ export class MapGrid {
 }
 
 /**
- * 由像素尺寸合成一张空图（只有外框，没有内部墙）。
- * `width/height` 保持调用方给的值；格数向上取整，所以网格可能比世界大不到一格。
+ * 由**格数**合成一张空图（只有外框，没有内部墙）。
+ * 世界尺寸 = cols × cellSize，由 MapGrid 派生。
  */
-export function blankMap(width, height, cellSize = DEFAULT_CELL_SIZE, name = "空白地图") {
-  const w = Math.max(1, Math.round(width));
-  const h = Math.max(1, Math.round(height));
-  const cs = Math.max(1, Math.round(cellSize));
-  const cols = Math.max(1, Math.ceil(w / cs));
-  const rows = Math.max(1, Math.ceil(h / cs));
+export function blankMap(cols, rows, cellSize = DEFAULT_CELL_SIZE, name = "空白地图") {
+  const c = Math.max(1, Math.round(cols));
+  const r = Math.max(1, Math.round(rows));
+  const cs = clampCellSize(cellSize);
   return new MapGrid({
-    width: w, height: h, cols, rows, cellSize: cs,
-    walls: new Uint8Array(cols * rows),
+    cols: c, rows: r, cellSize: cs,
+    walls: new Uint8Array(c * r),
     name
   });
 }
@@ -120,17 +149,19 @@ export function blankMap(width, height, cellSize = DEFAULT_CELL_SIZE, name = "�
 /**
  * 解析地图 JSON
  * -----------------------------------------------------------------
- * 接受两种写法（与沙盒 `parseMapDocument` 一致，沙盒里做过的图可以直接复用）：
- *   1. 二维数组：[[0,0,-1],[0,0,0]]
- *   2. 对象：{ name?, cellSize?, width?, height?, grid: [[...]] }
- * 值只允许 0（空地）或 -1（墙）。
+ * 文件格式（与沙盒一致）：
+ *
+ *   { "name"?: string, "width": 250, "height": 150, "grid": [[0,0,-1], ...] }
+ *
+ *   - `width` / `height` 是**格数**，不是 px，必须与 `grid` 的列数/行数一致。
+ *   - **没有 `cellSize` 字段。** 地图多大由引擎的 `DEFAULT_CELL_SIZE` 决定
+ *     （`世界宽 = width × cellSize`）。文件里若写了 `cellSize`，一律忽略。
+ *   - `walls` 原样搬进 `MapGrid`，**不重采样**：一格就是一格。
  *
  * @returns {{ok:true, map:MapGrid} | {ok:false, reasons:string[]}}
  */
 export function parseMapDocument(data, fallbackName = "导入地图") {
   let grid = null;
-  let rows = 0, cols = 0;
-  let cellSize = DEFAULT_CELL_SIZE;
   let name = fallbackName;
 
   if (Array.isArray(data)) {
@@ -139,33 +170,30 @@ export function parseMapDocument(data, fallbackName = "导入地图") {
     grid = data.grid;
     if (typeof data.name === "string" && data.name.trim()) name = data.name.trim();
     if (data.cellSize !== undefined) {
-      const cs = Number(data.cellSize);
-      if (!Number.isFinite(cs) || cs <= 0) {
-        return fail("cellSize 必须是正数。");
-      }
-      cellSize = Math.round(cs);
+      // 旧文件里可能残留这个字段；它不决定任何东西（地图的"多大"是格数决定的）
+      // 这里不报错，只是不采纳。
     }
     if (!Array.isArray(grid)) return fail("JSON 缺少 grid 二维数组。");
   } else {
     return fail("地图 JSON 必须是对象或二维数组。");
   }
 
-  rows = grid.length;
-  cols = rows > 0 && Array.isArray(grid[0]) ? grid[0].length : 0;
+  const rows = grid.length;
+  const cols = rows > 0 && Array.isArray(grid[0]) ? grid[0].length : 0;
 
-  if (cols < 2 || rows < 2) return fail("地图尺寸至少为 2 × 2。");
+  if (cols < 2 || rows < 2) return fail("地图尺寸至少为 2 × 2 格。");
   if (cols > MAX_MAP_COLS || rows > MAX_MAP_ROWS) {
-    return fail(`地图尺寸超过上限 ${MAX_MAP_COLS} × ${MAX_MAP_ROWS}。`);
+    return fail(`地图格数超过上限 ${MAX_MAP_COLS} × ${MAX_MAP_ROWS}。`);
   }
   if (cols * rows > MAX_MAP_CELLS) {
-    return fail(`地图格数超过上限 ${MAX_MAP_CELLS}。`);
+    return fail(`地图格数超过上限 ${MAX_MAP_CELLS} 格。`);
   }
   if (data && typeof data === "object") {
     if (data.width !== undefined && Number(data.width) !== cols) {
-      return fail("width 与 grid 的列数不一致。");
+      return fail("width 与 grid 的列数不一致（width 是格数）。");
     }
     if (data.height !== undefined && Number(data.height) !== rows) {
-      return fail("height 与 grid 的行数不一致。");
+      return fail("height 与 grid 的行数不一致（height 是格数）。");
     }
   }
 
@@ -189,9 +217,10 @@ export function parseMapDocument(data, fallbackName = "导入地图") {
   return {
     ok: true,
     map: new MapGrid({
-      width: cols * cellSize,
-      height: rows * cellSize,
-      cols, rows, cellSize, walls, name
+      cols, rows,
+      cellSize: DEFAULT_CELL_SIZE,
+      walls,
+      name
     })
   };
 
