@@ -316,12 +316,17 @@ export function mountFormation(root, { store, bridge, catalog, onBack }) {
 
   async function startPreview() {
     const { GameCore } = await import("../../core/core.js");
+    const { DEFAULT_WORLD_W, DEFAULT_WORLD_H } = await import("../../core/map.js");
     const { createPixiRenderer } = await import("../../render/render-pixi.js");
 
     const canvas = el("fm-canvas");
     simRenderer = await createPixiRenderer(canvas);
+    // ⚠ 世界尺寸必须和战斗界面一致。两边 fit 之后的"每世界像素占多少屏幕像素"才可比，
+    //   否则同一套 Couzin 参数在预览里会显得快/慢。之前这里没给尺寸 → 默认 1280×720，
+    //   而战场是 2000×1200，光这一项就让预览的缩放比大了 1.4 倍。
     sim = new GameCore({
-      map: null,
+      width: DEFAULT_WORLD_W,
+      height: DEFAULT_WORLD_H,
       build: previewBuild(),
       seed: 7
     });
@@ -331,13 +336,32 @@ export function mountFormation(root, { store, bridge, catalog, onBack }) {
     ro.observe(stage);
     layout();
 
-    const loop = () => {
+    // 推进用**真实时间累积**，和 main.js 一样：固定步长 + 追帧上限。
+    // 之前是"每帧 step 一次 1/60"，在 200Hz 的屏上等于 3.3 倍速 —— 这正是
+    // "阵型界面看着比战场快很多"的主因。
+    const FIXED = 1 / 60;
+    let last = performance.now();
+    let acc = 0;
+
+    const loop = now => {
       raf = requestAnimationFrame(loop);
+      const dt = Math.min(Math.max((now - last) / 1000, 0), 0.1);
+      last = now;
+
       if (running && sim) {
-        for (let i = 0; i < 1; i++) sim.step(1 / 60);
+        acc += dt;
+        let guard = 0;
+        while (acc >= FIXED && guard++ < 5) {
+          sim.step(FIXED);
+          acc -= FIXED;
+        }
+        if (acc > FIXED) acc = 0;      // 追不上就丢掉欠账，别越积越多
+      } else {
+        acc = 0;
       }
+
       if (sim && simRenderer) {
-        simRenderer.draw(sim.getView(), 1 / 60);
+        simRenderer.draw(sim.getView(), dt);
         syncBeacon();
       }
     };

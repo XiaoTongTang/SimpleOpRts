@@ -311,6 +311,16 @@ export function mountUI({ store, bridge }) {
     bridge.run({ type: "clearGoal", squadIds: ids });
   });
 
+  // ---- 右键：取消选择 ----
+  // 必须 preventDefault，否则会弹出浏览器的原生菜单（而且把战场挡住）。
+  // 只清"选中"，不动命令信标——取消信标有单独的按钮（右栏底部那条）。
+  fieldEl.addEventListener("contextmenu", e => {
+    e.preventDefault();
+    if (!selected.size) return;
+    selected.clear();
+    render();
+  });
+
   // ---- 框选 / 点击地面 / 中键平移 / 滚轮缩放 ----
   fieldEl.addEventListener("mousedown", e => {
     // 中键：拖屏（相机平移，不是选中）
@@ -338,7 +348,8 @@ export function mountUI({ store, bridge }) {
     const x = e.clientX - r.left, y = e.clientY - r.top;
     const left = Math.min(x, drag.x0), top = Math.min(y, drag.y0);
     const w = Math.abs(x - drag.x0), h = Math.abs(y - drag.y0);
-    if (w > 4 || h > 4) drag.moved = true;
+    // 阈值 8px：手抖几像素应当仍然算"点击下命令"，而不是框选
+    if (w > 8 || h > 8) drag.moved = true;
     marqueeEl.style.left = left + "px";
     marqueeEl.style.top = top + "px";
     marqueeEl.style.width = w + "px";
@@ -375,8 +386,11 @@ export function mountUI({ store, bridge }) {
     marqueeEl.style.display = "none";
     const d = drag;
     drag = null;
+    // 框选：世界坐标要先过相机，战场不再是 1:1
+    // ⚠ 空框选**不改动选中**。手抖几像素会被判成框选，而框里的空地又不是玩家想选的，
+    //   旧代码在这里 selected.clear() —— 于是"下命令时手一抖，选择就没了"。
+    //   要取消选择请按 Esc（提示条里写着）。
     if (d.moved && d.box) {
-      // 框选：世界坐标要先过相机，战场不再是 1:1
       const box = d.box;
       const snap = store.getState().snap;
       const hit = mySquads(snap).filter(s => {
@@ -384,6 +398,7 @@ export function mountUI({ store, bridge }) {
         return p.x >= box.left && p.x <= box.left + box.w
             && p.y >= box.top && p.y <= box.top + box.h;
       });
+      if (!hit.length) { render(); return; }
       selected.clear();
       for (const s of hit) selected.add(s.id);
       render();

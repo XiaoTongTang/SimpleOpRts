@@ -12,6 +12,7 @@
  */
 
 import { rand } from "./rng.js";
+import { FORMATIONS } from "../data/formation-templates.js";
 
 // ---------------------------------------------------------------
 // 每队独立的 Couzin 参数定义（质量速度模型）
@@ -33,14 +34,21 @@ import { rand } from "./rng.js";
 // ⚠ 阶段 2 的 sepRadius 仍然按**圆心距**填（= 旧 rRep），因为这一步只换力模型，
 //   单位半径还没进分离判据。阶段 3 会把它改成 `rRep − 2 × r_ref`，并让 u.radius 进入 gap。
 // ---------------------------------------------------------------
+// ⚠ 移动参数**直接从 form.default 派生**，不再抄一份数字。
+//   为什么：散兵池建队时 `form === null`（见 state.js createBuild），spawnAll 里
+//   `if (b.form) applyFormation(...)` 不会执行，于是它**只用这份默认值**。
+//   两边一旦各写一份就会漂——曾经出现过散兵 commandForce=127 而编队队 51，
+//   同一条命令散兵跑 159 px/s、编队队 64 px/s，差 2.5 倍。
+const DP = FORMATIONS["form.default"].p;
+
 export const P_DEFS = [
   // —— 移动 / 阵型（只被 group-layer 读取）——
-  ["sepForce", 0, 134], ["alignForce", 0, 82], ["cohForce", 0, 72],
-  ["threatForce", 0, 144], ["seekForce", 0, 115], ["commandForce", 0, 127],
-  ["sepRadius", 0, 12], ["alignRadius", 0, 52], ["cohRadius", 0, 96],
-  ["r4", 0, 90], ["r5", 0, 300],
-  ["arriveR", 0, 46],
-  ["smallPushShare", 0, 30],
+  ["sepForce", 0, DP.sepForce], ["alignForce", 0, DP.alignForce], ["cohForce", 0, DP.cohForce],
+  ["threatForce", 0, DP.threatForce], ["seekForce", 0, DP.seekForce], ["commandForce", 0, DP.commandForce],
+  ["sepRadius", 0, DP.sepRadius], ["alignRadius", 0, DP.alignRadius], ["cohRadius", 0, DP.cohRadius],
+  ["r4", 0, DP.r4], ["r5", 0, DP.r5],
+  ["arriveR", 0, DP.arriveR],
+  ["smallPushShare", 0, DP.smallPushShare],
   ["members", 0, 24],
   // —— 战斗（只被 defense-system 读取，与移动完全解耦）——
   // 护盾充能/维修不在参数表里：那是 support-system 读的 abilities，来自装配
@@ -128,6 +136,7 @@ export function makeSquad(def, id, faction) {
     loose: !!def.loose,
     p,
     goal: null, target: null,
+    flow: null,          // 命令力的流场（每队一张，按目标格共享缓存，见 sim/flow-field.js）
     cx: 0, cy: 0, cn: 0
   };
 }

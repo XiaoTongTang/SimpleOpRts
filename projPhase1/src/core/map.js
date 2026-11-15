@@ -14,6 +14,14 @@
  *   外部 JSON 地图则相反：cols/rows 是权威，width = cols × cellSize。
  */
 
+/**
+ * 默认世界尺寸（px）。
+ * 战斗界面与阵型编辑的预览**必须用同一把尺**，否则同一套 Couzin 参数在两个界面里
+ * 会因为"每世界像素占多少屏幕像素"不同而看着不一样快。放这里是为了别再各写一份。
+ */
+export const DEFAULT_WORLD_W = 2000;
+export const DEFAULT_WORLD_H = 1200;
+
 /** 默认格长（px）。8 是流场代价与碰撞精度的折中，实测见迁移设计 §3.4.4。 */
 export const DEFAULT_CELL_SIZE = 8;
 

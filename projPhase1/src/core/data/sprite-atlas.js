@@ -95,3 +95,28 @@ export function hashFrame(key, sheetKey = DEFAULT_SHEET) {
   }
   return { sheet: sheetKey, index: (h >>> 0) % frameCount(sheetKey) };
 }
+
+/**
+ * 没有 sidecar 时的兜底比例：32px 的格里船体约占 18px 宽。
+ * 有 sidecar 就用逐帧的真实 bboxW，这里只在缺文件时兜底（宽度会差 ±10%）。
+ */
+export const FALLBACK_ASPECT = 32 / 18;
+
+/**
+ * 一艘船该画多大（世界像素）。
+ *
+ *     size = 2r × (cellW / bboxW)
+ *
+ * 这样**贴图里船体的横向可见宽度正好等于 2 × radius**，墙边不会再有贴图插进去。
+ * 不能直接写 `2r`：素材有透明边距，32×32 的格里船体只有 18px 宽，
+ * 直接画 2r 会让可见宽度只剩 0.56 × 2r（矛隼只有 6.8px，基本看不见）。
+ *
+ * 纯函数、Node 可测；渲染层只是把 tex 上的 cellW / bboxW 传进来。
+ */
+export function shipDrawSize(hitR, cellW, bboxW) {
+  const r = Number.isFinite(hitR) && hitR > 0 ? hitR : 6;
+  const cw = Number.isFinite(cellW) && cellW > 0 ? cellW : 32;
+  const bw = Number.isFinite(bboxW) && bboxW > 0 ? bboxW : 0;
+  const k = bw > 0 ? cw / bw : FALLBACK_ASPECT;
+  return 2 * r * k;
+}

@@ -10,7 +10,8 @@
  */
 
 import { GameCore } from "../src/core/core.js";
-import { FORMATION_KEYS, FORMATION_PARAM_KEYS, FORMATION_PARAM_GROUPS } from "../src/core/data/formation-templates.js";
+import { makeParams } from "../src/core/sim/squad-layer.js";
+import { FORMATIONS, FORMATION_KEYS, FORMATION_PARAM_KEYS, FORMATION_PARAM_GROUPS } from "../src/core/data/formation-templates.js";
 
 let pass = 0, fail = 0;
 const ok = (n, c, e) => c ? (pass++, console.log(`  ok   ${n}`))
@@ -135,6 +136,35 @@ console.log("\n[6] 快照给编辑界面的字段");
     f.p.sepForce = -1;
     return core.formations["form.default"].p.sepForce !== -1;
   })());
+}
+
+console.log("\n[7] 没有阵型的小队（散兵池）默认值必须等于 form.default");
+{
+  const d = FORMATIONS["form.default"].p;
+
+  const p = makeParams();
+  const diff = FORMATION_KEYS.filter(k => p[k] !== d[k]);
+  ok("P_DEFS 的 13 个移动参数与 form.default 逐项相等", diff.length === 0,
+    diff.map(k => `${k}: ${p[k]} vs ${d[k]}`).join("; "));
+
+  // 散兵池建队时 form === null，spawnAll 不会 applyFormation，只能靠默认值
+  const core = mk();
+  const pool = core.poolOf(0);
+  const bad = FORMATION_KEYS.filter(k => core.squads[pool].p[k] !== d[k]);
+  ok("散兵池的 sq.p 与编队队一致", bad.length === 0, bad.join(","));
+
+  // 同一条命令下稳态速度应当同量级（曾经差 2.5 倍）
+  const reg = 0;
+  core.command({ type: "setGoal", squadIds: [reg, pool], x: 1500, y: 600 });
+  const spd = id => {
+    const a = core.units.filter(u => u.squad === id);
+    return a.length ? a.reduce((s, u) => s + Math.hypot(u.vx, u.vy), 0) / a.length : 0;
+  };
+  for (let f = 0; f < 120; f++) core.step(1 / 60);
+  const sr = spd(reg), sl = spd(pool);
+  ok("2 秒后两者平均速度接近（比值 < 1.6）",
+    Math.max(sr, sl) / Math.max(1e-6, Math.min(sr, sl)) < 1.6,
+    `编队队 ${sr.toFixed(1)} / 散兵 ${sl.toFixed(1)}`);
 }
 
 console.log(`\n${fail === 0 ? "全部通过" : "有失败"}：${pass} 通过 / ${fail} 失败\n`);

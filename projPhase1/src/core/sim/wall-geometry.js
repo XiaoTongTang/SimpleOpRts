@@ -8,19 +8,20 @@
  * 本文件是**唯一几何来源**：碰撞（wall-collision.js）与渲染（render-pixi.js）都调它。
  * 两边各画各的是最容易出的错 —— 玩家会看到"船离墙角还有半个格就被弹开"。
  *
- * 纯函数，无状态，可在 Node 里裸跑（见 test/chamfer.smoke.mjs）。
+ * 纯函数，无状态，可在 Node 里裸跑（见 test/wall.smoke.mjs 的 [1][2]）。
  */
 
 /**
- * 切进深度，单位是"格长的倍数"。
+ * 切进深度，单位是"格长的倍数"。**取整格，与沙盒一致。**
  *
- * 1.0 = 沙盒原样：从格的一个角切到对角，一个暴露角切掉**半格面积**。
- *       厚墙没问题，但薄墙会碎：2×2 方块变菱形、1 格厚墙的端头塌成三角、
- *       孤立单格四角全切后塌成一点（碰撞直接失效）。
- * 0.5 = 本项目的取值：只切半格，一个暴露角切掉 12.5% 面积。
- *       墙角仍然是 45° 斜面（8 px 格上是 4 px 倒角），但不会把方块啃成菱形。
+ * t = 1 时切面正好从格的一个角连到对角：暴露角被完整切掉，墙角是干净的 45° 斜面。
+ * 厚墙只削掉一层斜面；薄墙（2×2 方块、1 格厚墙、L 拐角）会被削细一些 ——
+ * 那是**地图设计工具该操心的事**（别画太薄的墙），游戏内不判定墙还剩多少面积。
+ *
+ * 唯一必须兜住的是**孤立单格**：四个角全是暴露角，切完就没有多边形、没有碰撞，
+ * 船能直接穿过去。所以四邻全空时不切（见 getWallChamferMask）。
  */
-export const CHAMFER_DEPTH_CELLS = 0.5;
+export const CHAMFER_DEPTH_CELLS = 1;
 
 /** 四个角的位掩码 */
 export const CORNER_TL = 1;
@@ -110,15 +111,4 @@ export function getChamferedCellPolygon(map, cx, cy) {
   }
 
   return pts.length >= 3 ? pts : null;
-}
-
-/** 多边形面积（正数）。测试与调试用。 */
-export function polygonArea(pts) {
-  if (!pts || pts.length < 3) return 0;
-  let a = 0;
-  for (let i = 0; i < pts.length; i++) {
-    const p = pts[i], q = pts[(i + 1) % pts.length];
-    a += p[0] * q[1] - q[0] * p[1];
-  }
-  return Math.abs(a) / 2;
 }

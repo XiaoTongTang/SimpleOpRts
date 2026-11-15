@@ -19,12 +19,13 @@
 
 import { Rectangle, Texture } from "pixi.js";
 import {
-  SPRITE_SHEETS, DEFAULT_SHEET, parseSkin, hashFrame
+  SPRITE_SHEETS, DEFAULT_SHEET, parseSkin, hashFrame, shipDrawSize
 } from "../core/data/sprite-atlas.js";
 
 /** 相对文档解析：开发（/）与构建后（/dist/）都能找到 public/imgs 里的图 */
 const imgUrl = file => new URL("imgs/" + file, document.baseURI).href;
 
+/** 没有 sidecar 时的兜底：32px 的格里船体约 18px 宽（= 32/18 ≈ 1.78） */
 /**
  * 加载全部图集。
  * @returns {Promise<Map<string, {key, frames, count, cell, cols, rows}>>}
@@ -42,6 +43,10 @@ async function loadSheet(key, def) {
   img.src = imgUrl(def.file);
   await img.decode();
 
+  // 同一张图旁边的 sidecar（由 tools/measure-sprites.mjs 离线量出来）。
+  // 拿不到也不致命：sizeOf 会退回"中位系数"，只是墙边会残余 ±10% 的宽度误差。
+  const meta = await loadMeta(def.file);
+
   // 素材本身偏暗，深色战场上乘算着色后会糊成一片。
   // 先整体提亮一档，再交给 tint 上阵营色。
   const sheet = brighten(img);
@@ -52,15 +57,36 @@ async function loadSheet(key, def) {
   const frames = [];
   for (let r = 0; r < def.rows; r++) {
     for (let c = 0; c < def.cols; c++) {
+      const index = r * def.cols + c;
       const tex = new Texture({
         source: base.source,
         frame: new Rectangle(c * def.cell, r * def.cell, def.cell, def.cell)
       });
-      tex.cellW = def.cell;                 // 渲染时按这个算缩放比
+      tex.cellW = def.cell;                       // 渲染时按这个算缩放比
+      tex.bboxW = meta?.frames?.[index]?.w || 0;  // 船体实际占多宽（0 = 没有 sidecar）
+      tex.bboxH = meta?.frames?.[index]?.h || 0;
       frames.push(tex);
     }
   }
-  return { key, frames, count: frames.length, cell: def.cell, cols: def.cols, rows: def.rows };
+  return { key, frames, count: frames.length, cell: def.cell, cols: def.cols, rows: def.rows, meta };
+}
+
+/** 读同名 sidecar；失败返回 null（游戏必须能跑） */
+async function loadMeta(file) {
+  const url = imgUrl(file.replace(/\.png$/i, ".json"));
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const doc = await res.json();
+    if (doc?.schema !== "sprite-atlas/1") {
+      console.warn(`[ship-sprites] ${file} 的 sidecar 版本不对，按缺失处理`);
+      return null;
+    }
+    return doc;
+  } catch {
+    console.warn(`[ship-sprites] 读不到 ${file} 的 sidecar，sizeOf 走兜底系数`);
+    return null;
+  }
 }
 
 /** 提亮 + 轻微加对比的离屏拷贝；不支持 ctx.filter 就原图返回 */
@@ -109,8 +135,21 @@ export function resolveFrame(atlases, u) {
   return atlas.frames[fallback.index % atlas.count];
 }
 
-/** 一艘船画多大（世界像素）。受击半径越大越大，夹 22–64。 */
-export function sizeOf(u) {
-  const r = u.hitR === undefined ? 6 : u.hitR;
-  return Math.max(22, Math.min(64, 14 + r * 2.6));
+/**
+ * 一艘船画多大（世界像素）。
+ *
+ * **让贴图里船体的横向可见宽度正好等于 2 × radius**：
+ *
+ *     sizeOf = 2r × (cellW / bboxW)
+ *
+ * 这样船与墙、船与船看到的边界和碰到的边界是同一个 —— 墙边不会再有贴图插进去。
+ *
+ * 为什么不能直接写 `2r`：素材有透明边距。32×32 的格里船体只占 18 像素宽，
+ * 直接画 2r 会让可见宽度只有 `2r × 18/32 = 0.56 × 2r`（矛隼只有 6.8 px，基本看不见）。
+ *
+ * `bboxW` 来自图片旁边的 sidecar（tools/measure-sprites.mjs 离线量）。
+ * 没有 sidecar 时退回中位系数 32/18 ≈ 1.78，最多差 ±10% 宽度。
+ */
+export function sizeOf(u, tex) {
+  return shipDrawSize(u.hitR, tex && tex.cellW, tex && tex.bboxW);
 }

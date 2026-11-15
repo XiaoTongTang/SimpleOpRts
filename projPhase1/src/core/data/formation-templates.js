@@ -29,15 +29,14 @@ export const FORMATIONS = {
     builtin: true,
     p: {
       // 社交力（px/s²）
-      sepForce: 60, alignForce: 45, cohForce: 30,
+      sepForce: 50, alignForce: 45, cohForce: 30,
       // 社交半径（px）：sepRadius 是**表面间隙**
-      sepRadius: 22, alignRadius: 65, cohRadius: 140,
+      sepRadius: 12, alignRadius: 55, cohRadius: 180,
       // 命令与战术
-      commandForce: 51, arriveR: 133, smallPushShare: 30,
-      // 交战：沙盒里没有战斗参数组，这里给 0 保持"纯群体行为"
+      commandForce: 50, arriveR: 135, smallPushShare: 25,
       // （要恢复交战行为，把 threatForce / seekForce 调起来即可）
-      threatForce: 0, seekForce: 0,
-      r4: 80, r5: 300
+      threatForce: 50, seekForce: 50,
+      r4: 190, r5: 500
     }
   }
 };

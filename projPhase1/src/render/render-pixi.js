@@ -99,7 +99,7 @@ class PixiRenderer extends WorldRenderer {
     this.world.position.set(cam.ox, cam.oy);
     this.world.scale.set(cam.zoom);
 
-    this.drawBorder(view.world);
+    this.drawBorder(view);
     this.drawWalls(view);
     this.drawUnits(view, dt);
     this.drawBars(view);
@@ -137,9 +137,22 @@ class PixiRenderer extends WorldRenderer {
 
   // ---------------- 战场底纹 ----------------
 
-  drawBorder(world) {
+  /**
+   * 底纹 + 网格 + 世界边框。
+   *
+   * 网格就是**真实的地图格**（`map.cellSize`），不再是画着好看的装饰网格。
+   * 以前这里是写死的 STEP = 48，而地图格是 8 —— 画面上一格底下其实是 6×6 个真实格，
+   * 看墙、看寻路都会误判尺度。
+   *
+   * 8px 的格在全图缩放下只有 ~3.5 屏幕像素，所以线要压得很淡；zoom 变大时它才读得出是格子。
+   */
+  drawBorder(view) {
+    const map = view.map;
+    const world = view.world;
+    const cell = map && map.cellSize ? map.cellSize : 0;
+
     const g = this.border;
-    const key = `${world.w}x${world.h}`;
+    const key = `${world.w}x${world.h}:${cell}:${map ? map.rev : 0}`;
     if (this._bgKey === key) return;
     this._bgKey = key;
 
@@ -149,13 +162,15 @@ class PixiRenderer extends WorldRenderer {
     // 地图本体：比画布外圈稍亮一点，缩到全图时能一眼看出战场边界
     g.rect(0, 0, W, H).fill({ color: 0x0a1018, alpha: 1 });
 
-    // 细网格：给空战场一点纵深（很淡，不抢单位）
-    const STEP = 48;
-    for (let x = 0; x <= W; x += STEP) {
-      g.moveTo(x, 0).lineTo(x, H).stroke({ color: 0x5a82aa, alpha: 0.045, width: 1 });
-    }
-    for (let y = 0; y <= H; y += STEP) {
-      g.moveTo(0, y).lineTo(W, y).stroke({ color: 0x5a82aa, alpha: 0.045, width: 1 });
+    // 真实方格
+    if (cell > 0) {
+      const grid = { color: 0x5a82aa, alpha: 0.09, width: 1 };
+      for (let x = cell; x < W; x += cell) {
+        g.moveTo(x, 0).lineTo(x, H).stroke(grid);
+      }
+      for (let y = cell; y < H; y += cell) {
+        g.moveTo(0, y).lineTo(W, y).stroke(grid);
+      }
     }
 
     // 世界边框：地图是有边的，不是无限平面
@@ -204,7 +219,7 @@ class PixiRenderer extends WorldRenderer {
       const tex = resolveFrame(atlases, u);
       if (tex && s._tex !== tex) { s.texture = tex; s._tex = tex; }
 
-      const size = sizeOf(u);                // 世界像素：受击半径越大，船越大
+      const size = sizeOf(u, tex);           // 世界像素：让可见宽度 = 2 × radius
       s.scale.set(size / (tex ? tex.cellW : 32));
 
       // 航向：每帧都把速度方向喂给 IIR 低通（没有速度死区）。
@@ -232,13 +247,13 @@ class PixiRenderer extends WorldRenderer {
 
       // 护盾：一圈淡蓝
       if (u.shield > 0) {
-        const r = sizeOf(u) * 0.5 + 3;
+        const r = sizeOf(u, resolveFrame(this.atlases, u)) * 0.5 + 3;
         g.circle(u.x, u.y, r).stroke({ color: 0x78d2ff, alpha: 0.55, width: 1.1 });
       }
 
       if (!(u.hp < u.maxHp)) continue;
 
-      const size = sizeOf(u);
+      const size = sizeOf(u, resolveFrame(this.atlases, u));
       const bw = Math.max(BAR_W, size * 0.72);
       const bx = u.x - bw / 2;
       const by = u.y - size * 0.5 + BAR_DY;      const f = Math.max(0, Math.min(1, u.hp / u.maxHp));

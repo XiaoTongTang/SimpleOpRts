@@ -11,7 +11,7 @@
  */
 
 import { GameCore } from "./core/core.js";
-import { blankMap } from "./core/map.js";
+import { blankMap, DEFAULT_WORLD_W, DEFAULT_WORLD_H } from "./core/map.js";
 import { createPixiRenderer } from "./render/render-pixi.js";
 import { gameStore, actions } from "./store/gameStore.js";
 import { loadShips, saveShips } from "./store/persist.js";
@@ -21,8 +21,8 @@ import { mountUI } from "./ui/ui.js";
 const FIXED = 1 / 60;
 
 // 地图是固定大小的：窗口怎么变都不动它，取景靠相机（滚轮缩放 / 中键拖拽 / 小地图）
-const WORLD_W = 2000;
-const WORLD_H = 1200;
+const WORLD_W = DEFAULT_WORLD_W;
+const WORLD_H = DEFAULT_WORLD_H;
 
 async function boot() {
   const cvs = document.getElementById("c");

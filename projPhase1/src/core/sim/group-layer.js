@@ -25,6 +25,7 @@ import {
   alignForce as computeAlignForce, cohesionForce as computeCohesionForce
 } from "./force-model.js";
 import { moveUnitWithWalls } from "./wall-collision.js";
+import { directionAt } from "./flow-field.js";
 
 /** 参考巡航速度（px/s）。只用于安全阀与参数换算，不再是硬上限。 */
 export const SPD = 96;
@@ -166,13 +167,27 @@ export function stepUnits(units, squads, G, dt, W, H, map = null) {
     }
 
     // ---- 命令通道：只吃本小队的命令点 ----
+    // 方向优先读本队流场（双线性插值，能绕障且没有阶梯），
+    // 没有场（还没算好 / 没有地图 / 该处不可达）就退回直线。
     let cmdX = 0, cmdY = 0, cmdPull = 0;
     if (sq.goal) {
-      const gdx = sq.goal.x - u.x;
-      const gdy = sq.goal.y - u.y;
-      const distGoal = Math.hypot(gdx, gdy) || 1e-6;
-      cmdX = gdx / distGoal;
-      cmdY = gdy / distGoal;
+      let dx = 0, dy = 0;
+
+      const flowDir = map ? directionAt(sq.flow, map, u.x, u.y) : null;
+      if (flowDir) {
+        dx = flowDir.x;
+        dy = flowDir.y;
+      } else {
+        const gdx = sq.goal.x - u.x;
+        const gdy = sq.goal.y - u.y;
+        const L = Math.hypot(gdx, gdy) || 1e-6;
+        dx = gdx / L;
+        dy = gdy / L;
+      }
+
+      cmdX = dx;
+      cmdY = dy;
+      const distGoal = Math.hypot(sq.goal.x - u.x, sq.goal.y - u.y) || 1e-6;
       const arriveR = P.arriveR > 0 ? P.arriveR : 1;
       cmdPull = distGoal < arriveR ? distGoal / arriveR : 1;
     }

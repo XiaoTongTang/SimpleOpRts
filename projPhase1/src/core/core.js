@@ -22,6 +22,7 @@ import { stepUnits } from "./sim/group-layer.js";
 import { Grid } from "./sim/spatial.js";
 import { blankMap, parseMapDocument, DEFAULT_CELL_SIZE } from "./map.js";
 import { resolveUnitWall } from "./sim/wall-collision.js";
+import { buildFlowField, FlowCache, targetCellOf } from "./sim/flow-field.js";
 import { stepWeapons } from "./sim/weapon-system.js";
 import { applyDamage, stepRegen, applyCombatParams, initUnit, retrofitUnit,
          unitSignature, runtimeSignature } from "./sim/defense-system.js";
@@ -50,6 +51,15 @@ import { ABILITY_TEMPLATES } from "./data/ability-templates.js";
 import { WEAPONS } from "./sim/weapons.js";
 
 const SPAWN_SPREAD = 55;
+
+/**
+ * 每帧最多算几张流场。
+ *
+ * **必须是定数**：按毫秒预算会让不同机器在"第几帧算完"上分叉，同一颗种子
+ * 跑出的战斗就不一样了（determinism.smoke 会红）。
+ * 实测一张 250×150 的场约 2~3 ms，一帧 16.7 ms 有余量。
+ */
+const FLOW_PER_FRAME = 1;
 
 export class GameCore {
   constructor(opts = {}) {
@@ -99,6 +109,10 @@ export class GameCore {
     this.fx = [];
     this.hits = [];
     this.grid = new Grid(Math.max(1, this.width), Math.max(1, this.height));
+
+    // 流场：按目标格共享的缓存 + 待算队列（队列顺序决定"哪一帧算完"，必须是确定的）
+    this.flowCache = new FlowCache(8);
+    this.flowQueue = [];
 
     /** 构筑状态：权威 */
     this.ships = opts.ships && Object.keys(opts.ships).length
@@ -425,6 +439,9 @@ export class GameCore {
 
     // 1. 集群移动（位置推进 + 墙体硬碰撞都在 stepUnits 内部完成，
     //    这里不再有任何 [8, W-8] 的硬夹 —— 墙的边界由 map 的世界边框处理）
+    // 流场先补一张（每帧最多 FLOW_PER_FRAME 张），再让船去读它
+    this.stepFlowQueue();
+
     computeCenters(this.units, this.squads);
     computeSquadTargets(this.units, this.squads);
     stepUnits(this.units, this.squads, this.G, dt, this.width, this.height, this.map);
@@ -1111,6 +1128,72 @@ export class GameCore {
   }
 
   // ------------------------------------------------------------------
+  // 流场
+  // ------------------------------------------------------------------
+  //
+  // 每支小队一张场，但**按目标格共享缓存**：8 支队伍下同一个信标只算一次。
+  // 换图、清信标、改信标都要让对应的场失效。
+  // 算场是"贵活"，所以排队 + 定数调度（每帧最多一张），绝不按毫秒决定。
+
+  /** 把一支队伍排进待算队列（已在队列里就不重复排） */
+  enqueueFlow(squadId) {
+    if (squadId === undefined || squadId === null) return;
+    if (!this.flowQueue.includes(squadId)) this.flowQueue.push(squadId);
+  }
+
+  /** 每帧补一批流场。返回这一帧算了几张 */
+  stepFlowQueue() {
+    let done = 0;
+    while (done < FLOW_PER_FRAME && this.flowQueue.length > 0) {
+      const id = this.flowQueue.shift();
+      this.buildSquadFlow(id);
+      done++;
+    }
+    return done;
+  }
+
+  /** 给某支队伍配好流场（优先从缓存拿） */
+  buildSquadFlow(squadId) {
+    const sq = this.squads[squadId];
+    if (!sq) return false;
+    if (!sq.goal || !this.map) { sq.flow = null; return false; }
+
+    const map = this.map;
+    const cell = targetCellOf(map, sq.goal.x, sq.goal.y);
+    if (!cell) { sq.flow = null; return false; }
+
+    const key = FlowCache.keyOf(map, cell.cellX, cell.cellY);
+    let field = this.flowCache.get(key);
+
+    if (!field) {
+      const t0 = typeof performance !== "undefined" ? performance.now() : Date.now();
+      field = buildFlowField(map, sq.goal.x, sq.goal.y);
+      if (field) {
+        field.computeMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - t0;
+        this.flowCache.set(key, field);
+      }
+    }
+
+    sq.flow = field || null;
+    return !!field;
+  }
+
+  /** 某支队伍当前的流场状态（调试 / UI 用） */
+  flowInfoOf(squadId) {
+    const sq = this.squads[squadId];
+    if (!sq) return null;
+    const f = sq.flow;
+    if (!f) return { ready: false, pending: this.flowQueue.includes(squadId) };
+    return {
+      ready: true,
+      targetCellX: f.targetCellX,
+      targetCellY: f.targetCellY,
+      reachable: f.reachable,
+      computeMs: f.computeMs || 0
+    };
+  }
+
+  // ------------------------------------------------------------------
   // 阵型库（玩家可编辑的 Couzin 参数组）
   // ------------------------------------------------------------------
   //
@@ -1684,13 +1767,12 @@ export class GameCore {
     for (const id of ids) {
       const sq = this.squads[id];
       if (!sq) continue;
-      // 已解散的队不接受命令：它已经不在了
-      const b = this.build.squads[id];
 
       sq.goal = {
         x: Math.max(0, Math.min(this.width, x)),
         y: Math.max(0, Math.min(this.height, y))
       };
+      this.enqueueFlow(id);          // 新信标 = 新流场（下一帧补，按队列顺序）
       n++;
     }
     if (!n) return reject(["没有这支小队"]);
@@ -1708,6 +1790,8 @@ export class GameCore {
       if (!sq.goal) continue;
       if (ids && !ids.includes(sq.id)) continue;
       sq.goal = null;
+      sq.flow = null;          // 信标没了，场也没用了
+      this.flowQueue = this.flowQueue.filter(x => x !== sq.id);
       n++;
     }
     if (!n) return reject(["没有可取消的命令信标"]);

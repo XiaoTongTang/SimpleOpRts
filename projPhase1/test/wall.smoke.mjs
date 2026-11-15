@@ -3,8 +3,9 @@
  *   node test/wall.smoke.mjs
  *
  * 验的是：
- *   1. 倒角几何：各种格型下的顶点数与剩余面积（沙盒那套会退化的地方必须不退化）
- *   2. 孤立单格**必须挡船**（沙盒原样会塌成一点 → 完全无碰撞）
+ *   1. 倒角：暴露的角被切掉、内部的角不切（只管"角切了"，不管切掉多少面积 ——
+ *      墙画多厚、多薄是地图设计工具的事，游戏内不判定）
+ *   2. 孤立单格：不切，因为四角全切掉就完全没有碰撞了 → **必须挡船**
  *   3. 穿透：全宽墙带 / 实心方块（含凸角），半径 6 / 9 / 13 三档，600 帧穿透帧数 = 0
  *   4. 世界边框：推到边上停在 radius 处，不出现"穿出去再弹回来"
  *   5. 沿墙滑：只去法向速度，切向保留
@@ -14,7 +15,7 @@
 
 import { MapGrid } from "../src/core/map.js";
 import {
-  getChamferedCellPolygon, getWallChamferMask, polygonArea, CHAMFER_DEPTH_CELLS
+  getChamferedCellPolygon, getWallChamferMask, CHAMFER_DEPTH_CELLS
 } from "../src/core/sim/wall-geometry.js";
 import {
   collectCircleWallContacts, findDeepestContact, moveUnitWithWalls,
@@ -41,48 +42,50 @@ function blockCells(x0, y0, w, h) {
   return out;
 }
 
-const full = C * C;
-const pct = a => (a / full * 100).toFixed(0) + "%";
+/** 点在多边形内（射线法）。测试里只用来判断"这个角还在不在"，不关心面积。 */
+function insidePoly(pts, x, y) {
+  let hit = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i], b = pts[j];
+    if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) hit = !hit;
+  }
+  return hit;
+}
 
-console.log("\n[1] 倒角几何：切进深度与「暴露角」判定");
-ok("切进深度默认是半格（不改的话薄墙会碎）", CHAMFER_DEPTH_CELLS === 0.5, String(CHAMFER_DEPTH_CELLS));
+console.log("\n[1] 倒角：暴露的角要切掉，内部的角不切");
 {
+  ok("切进深度 = 满格（与沙盒一致）", CHAMFER_DEPTH_CELLS === 1, String(CHAMFER_DEPTH_CELLS));
+
+  // 3×3 方块：只有四个大角暴露在空地上
   const m = makeMap(20, 20, blockCells(5, 5, 3, 3));
-  ok("厚墙内部格 mask = 0（完全不切）", getWallChamferMask(m, 6, 6) === 0);
-  ok("厚墙内部格面积 100%", Math.abs(polygonArea(getChamferedCellPolygon(m, 6, 6)) - full) < 1e-6);
-  ok("3×3 左上角格只切 1 个角", getWallChamferMask(m, 5, 5) === 1, String(getWallChamferMask(m, 5, 5)));
-  ok("3×3 左上角格剩 87.5%",
-    Math.abs(polygonArea(getChamferedCellPolygon(m, 5, 5)) - full * 0.875) < 0.01,
-    pct(polygonArea(getChamferedCellPolygon(m, 5, 5))));
+  ok("厚墙内部格 mask = 0（不切）", getWallChamferMask(m, 6, 6) === 0);
+  const inner = getChamferedCellPolygon(m, 6, 6);
+  ok("厚墙内部格还是完整方块", inner.length === 4, String(inner.length));
+  ok("内部格的左上角还在", insidePoly(inner, 6 * C + 1, 6 * C + 1));
+
+  ok("3×3 左上角格只切左上这一个角",
+    getWallChamferMask(m, 5, 5) === 1, String(getWallChamferMask(m, 5, 5)));
+  const corner = getChamferedCellPolygon(m, 5, 5);
+  ok("左上那个角真的没了", !insidePoly(corner, 5 * C + 1, 5 * C + 1));
+  ok("另外三个角都还在",
+    insidePoly(corner, 6 * C - 1, 5 * C + 1) &&
+    insidePoly(corner, 6 * C - 1, 6 * C - 1) &&
+    insidePoly(corner, 5 * C + 1, 6 * C - 1));
+
+  // 1 格厚的墙：中段不切，端头两个角都切
+  const m1 = makeMap(20, 20, blockCells(4, 5, 3, 1));
+  ok("1 格厚墙中段 mask = 0（不切）", getWallChamferMask(m1, 5, 5) === 0);
+  ok("1 格厚墙端头 mask = 左上 + 左下（两个角都切）",
+    getWallChamferMask(m1, 4, 5) === 9, String(getWallChamferMask(m1, 4, 5)));
+
   ok("非墙格返回 null", getChamferedCellPolygon(m, 0, 0) === null);
 }
 
-console.log("\n[2] 倒角不退化（沙盒那套的三个坑）");
+console.log("\n[2] 孤立单格：不切（四个角全切掉就没有碰撞了）");
 {
-  // 2×2 方块：沙盒原样会变成一个菱形（50%）；半格倒角之后只削掉四角
-  const m2 = makeMap(20, 20, blockCells(5, 5, 2, 2));
-  let area2 = 0;
-  for (const [x, y] of blockCells(5, 5, 2, 2)) area2 += polygonArea(getChamferedCellPolygon(m2, x, y));
-  ok("2×2 方块不是菱形（总面积 ≥ 80%）", area2 >= 4 * full * 0.8, pct(area2 / 4));
-
-  // 1 格厚墙的端头：沙盒原样塌成三角形（25%），现在应该是 75%
-  const m1 = makeMap(20, 20, blockCells(4, 5, 3, 1));
-  const endArea = polygonArea(getChamferedCellPolygon(m1, 4, 5));
-  ok("1 格厚墙端头剩 75%（不是三角形）",
-    Math.abs(endArea - full * 0.75) < 0.01, pct(endArea));
-
-  // L 形拐角
-  const m3 = makeMap(20, 20, [[5, 5], [5, 6], [5, 7], [6, 7], [7, 7]]);
-  const cornerArea = polygonArea(getChamferedCellPolygon(m3, 5, 5));
-  ok("L 形拐角剩 75%（不是被啃掉 3/4）",
-    Math.abs(cornerArea - full * 0.75) < 0.01, pct(cornerArea));
-
-  // 孤立单格：沙盒原样四角全切 → 塌成一点 → 返回 null → 船直接穿过去
-  const m4 = makeMap(20, 20, [[10, 10]]);
-  const iso = getChamferedCellPolygon(m4, 10, 10);
-  ok("孤立单格返回完整方块（不是 null、不是一点）",
-    iso !== null && iso.length === 4, iso ? String(iso.length) : "null");
-  ok("孤立单格面积 100%", Math.abs(polygonArea(iso) - full) < 1e-6, pct(polygonArea(iso)));
+  const m = makeMap(20, 20, [[10, 10]]);
+  ok("孤立单格 mask = 0（四邻全空，不切）", getWallChamferMask(m, 10, 10) === 0);
+  ok("孤立单格仍是完整方块", getChamferedCellPolygon(m, 10, 10).length === 4);
 }
 
 console.log("\n[3] 孤立单格必须挡船（沙盒原样的硬 bug）");
