@@ -117,11 +117,11 @@ export class GameCore {
 
     /** 全局移动参数。数值取质量速度模型沙盒的实测默认值（见 form.default 的注释） */
     this.G = {
-      damping: 0.80,        // 粘性阻尼 λ（1/s）
+      damping: 1.1,        // 粘性阻尼 λ（1/s）
       mass: 1.00,           // 全局质量：a = F / mass
       boostSpeed: 60,       // 低速助推阈值
-      boostForce: 40,       // 低速助推力
-      maxSpeedFactor: 1.80  // 安全阀：|v| ≤ SPD × 这个系数（沙盒没有上限，这里保留以防火箭）
+      boostForce: 45,       // 低速助推力
+      maxSpeedFactor: 1.20  // 安全阀：|v| ≤ SPD × 这个系数（沙盒没有上限，这里保留以防火箭）
     };
 
     this.squads = makeSquads();

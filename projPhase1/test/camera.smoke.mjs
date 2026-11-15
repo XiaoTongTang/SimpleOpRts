@@ -17,7 +17,10 @@ const ok = (n, c, e) => c ? (pass++, console.log(`  ok   ${n}`))
 const eq = (n, a, b) => ok(n, a === b, `期望 ${b}，实际 ${a}`);
 const near = (n, a, b, eps = 1e-6) => ok(n, Math.abs(a - b) <= eps, `期望 ${b}，实际 ${a}`);
 
-const mk = (w = 2000, h = 1200) => new GameCore({ width: w, height: h });
+// 相机测试用的是"世界 2000×1200"这组数字，所以必须**钉死格长 8**：
+// DEFAULT_CELL_SIZE 是比例尺旋钮（会被拿去做实验，比如 32），
+// 而世界尺寸 = 格数 × 格长，2000 不是 32 的整数倍 → 世界会变成 2016。
+const mk = (w = 2000, h = 1200, cell = 8) => new GameCore({ width: w, height: h, cell });
 
 console.log("\n[1] 视口 ≠ 世界");
 {

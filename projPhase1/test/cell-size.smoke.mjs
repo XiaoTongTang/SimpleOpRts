@@ -35,20 +35,20 @@ function gridWithWall(cols, rows, x0 = Math.floor(cols / 2), w = 4) {
 
 console.log("\n[1] 派生关系：世界尺寸 = 格数 × 格长");
 {
-  const C = DEFAULT_CELL_SIZE;
-  const m = blankMap(DEFAULT_WORLD_COLS, DEFAULT_WORLD_ROWS, C);
-  eq("列数就是给的格数", m.cols, DEFAULT_WORLD_COLS);
-  eq("行数就是给的格数", m.rows, DEFAULT_WORLD_ROWS);
-  eq("世界宽 = 格数 × 格长", m.width, DEFAULT_WORLD_COLS * C);
-  eq("世界高 = 格数 × 格长", m.height, DEFAULT_WORLD_ROWS * C);
+  // 这里用**显式**格长，不受 DEFAULT_CELL_SIZE（正在被拿来做比例尺实验的那个旋钮）影响
+  const m8 = blankMap(DEFAULT_WORLD_COLS, DEFAULT_WORLD_ROWS, 8);
+  eq("列数就是给的格数", m8.cols, DEFAULT_WORLD_COLS);
+  eq("行数就是给的格数", m8.rows, DEFAULT_WORLD_ROWS);
+  eq("世界宽 = 格数 × 格长", m8.width, DEFAULT_WORLD_COLS * 8);
+  eq("世界高 = 格数 × 格长", m8.height, DEFAULT_WORLD_ROWS * 8);
 
   // 同一张 250×150 的图，格长 ×3 → 世界 ×3、格数一位不变
   const m24 = blankMap(DEFAULT_WORLD_COLS, DEFAULT_WORLD_ROWS, 24);
-  eq("换格长后格数不变（列）", m24.cols, m.cols);
-  eq("换格长后格数不变（行）", m24.rows, m.rows);
+  eq("换格长后格数不变（列）", m24.cols, m8.cols);
+  eq("换格长后格数不变（行）", m24.rows, m8.rows);
   eq("世界宽按比例放大", m24.width, DEFAULT_WORLD_COLS * 24);
   eq("世界高按比例放大", m24.height, DEFAULT_WORLD_ROWS * 24);
-  ok("世界确实变大了", m24.width > m.width);
+  ok("世界确实变大了", m24.width > m8.width);
 
   eq("格坐标换算跟着格长", m24.cellXOf(24 * 3 + 5), 3);
 }

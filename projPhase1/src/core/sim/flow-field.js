@@ -27,6 +27,20 @@
 
 const SQRT2 = Math.SQRT2;
 
+/**
+ * 净空惩罚带宽度（**格**）。离墙 `B` 格以内加价，`B` 格外不加价。
+ *
+ * 以"格"为单位是刻意的：格长就是地图比例尺，整张图放大时边距也一起放大；
+ * 而且**与单位半径无关** —— 流场服务的是整支小队（集群移动），
+ * 不是单船的碰撞保证。设计见 design/261115_2流场通行成本/技术设计-流场通行成本.md。
+ *
+ * 6 格是 2026-11-15 定的：3 格只够把"长贴墙段"推出 1 格，看不出效果；6 格才会真正走到走廊中间。
+ */
+export const CLEARANCE_BAND_CELLS = 10;
+
+/** 净空惩罚力度：贴墙格的单步代价最多比开阔格贵 `λ` 倍（0.4 = 贵 40%）。 */
+export const CLEARANCE_LAMBDA = 1;
+
 /** 8 邻域：[dx, dy, 代价]，前 4 个是直边，后 4 个是斜边 */
 const DIRS = [
   [1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1],
@@ -71,13 +85,17 @@ export function targetCellOf(map, x, y) {
  * @param {object} map  MapGrid
  * @param {number} targetX 目标世界坐标
  * @param {number} targetY
+ * @param {object} [opts] 净空加权（默认取模块常量，测试可以覆盖）
+ * @param {number} [opts.band]   惩罚带宽度（格），0 = 关闭
+ * @param {number} [opts.lambda] 最大加权幅度，0 = 关闭（等价于改动前的纯几何流场）
  * @returns {null | {
  *   ready: true, cellSize: number, cols: number, rows: number,
  *   targetCellX: number, targetCellY: number, reachable: number,
- *   cost: Float32Array, dirX: Float32Array, dirY: Float32Array
+ *   band: number, lambda: number,
+ *   cost: Float64Array, dirX: Float32Array, dirY: Float32Array
  * }} 目标落在墙里且附近没有空地时返回 null
  */
-export function buildFlowField(map, targetX, targetY) {
+export function buildFlowField(map, targetX, targetY, opts = {}) {
   const cols = map.cols, rows = map.rows, n = cols * rows;
   const cs = map.cellSize;
 
@@ -86,6 +104,14 @@ export function buildFlowField(map, targetX, targetY) {
   if (!cell) return null;
   const tcx = cell.cellX;
   const tcy = cell.cellY;
+
+  // 净空加权参数。band 以"格"计，与单位半径无关。
+  const band = Math.max(0, Math.round(Number(opts.band ?? CLEARANCE_BAND_CELLS)));
+  const lambda = Math.max(0, Number(opts.lambda ?? CLEARANCE_LAMBDA));
+  const B2 = band * 2;                                  // 半格单位（chamfer 的尺度）
+  // 每步代价 = len · (1 + (penA + penB) · K)，pen ∈ [0, B2] → 系数 ∈ [1, 1+λ]
+  const K = band > 0 ? lambda / (2 * B2) : 0;
+  const weighted = K > 0;
 
   // cost 必须是 Float64：堆里存的是 double，若用 Float32 存，像 √2 这种代价会被舍入，
   // `nodeCost > cost[index]` 判出"这个节点已经过时了"，于是它再也不会被 settle，
@@ -105,6 +131,43 @@ export function buildFlowField(map, targetX, targetY) {
     const dst = (y + 1) * PW + 1;
     for (let x = 0; x < cols; x++) {
       if (map.walls[src + x] === 0) solid[dst + x] = 0;
+    }
+  }
+
+  // ---- 净空距离变换（两趟 chamfer，单位"半格"，饱和在 2B）----
+  //
+  // 为什么要饱和：只有当这一格离墙不到 B 格时才需要加价，更远的格一律不加。
+  // 距离只增不减地向外传播，所以"取 min 之后再夹到 2B"不会破坏后续传播：
+  // 已经饱和的格再 +2 还是会被夹回 2B。
+  //
+  // 用**带边**的数组下标（和 solid 同一套），Dijkstra 里已经算好了 pp，直接查表，零额外索引运算。
+  let clear = null;
+  if (weighted) {
+    clear = new Uint8Array(PW * (rows + 2)).fill(B2);
+    for (let i = 0; i < solid.length; i++) if (solid[i]) clear[i] = 0;
+    const clampB2 = v => (v < B2 ? v : B2);
+
+    // 前向：上、左、左上、右上
+    for (let y = 1; y <= rows; y++) {
+      for (let x = 1; x <= cols; x++) {
+        const i = y * PW + x;
+        if (clear[i] === 0) continue;
+        let v = clear[i];
+        v = clampB2(Math.min(v, clear[i - PW] + 2, clear[i - 1] + 2,
+                               clear[i - PW - 1] + 3, clear[i - PW + 1] + 3));
+        clear[i] = v;
+      }
+    }
+    // 后向：下、右、右下、左下
+    for (let y = rows; y >= 1; y--) {
+      for (let x = cols; x >= 1; x--) {
+        const i = y * PW + x;
+        if (clear[i] === 0) continue;
+        let v = clear[i];
+        v = clampB2(Math.min(v, clear[i + PW] + 2, clear[i + 1] + 2,
+                               clear[i + PW + 1] + 3, clear[i + PW - 1] + 3));
+        clear[i] = v;
+      }
     }
   }
 
@@ -167,6 +230,8 @@ export function buildFlowField(map, targetX, targetY) {
     const cx = index % cols;
     const cy = (index / cols) | 0;
     const p = (cy + 1) * PW + (cx + 1);
+    // 本格自己的惩罚项（循环外算一次，8 个邻居复用）
+    const penA = weighted ? (B2 - clear[p]) : 0;
 
     for (let d = 0; d < 8; d++) {
       const dir = DIRS[d];
@@ -175,7 +240,11 @@ export function buildFlowField(map, targetX, targetY) {
       if (solid[pp]) continue;                                   // 目标格是墙
       if (dx !== 0 && dy !== 0 && (solid[p + dx] || solid[p + dy * PW])) continue;  // 斜穿墙角
       const ni = index + dy * cols + dx;
-      const next = nodeCost + dir[2];
+      // 净空加权：贴墙的格贵一点（clear 越接近 0，pen 越接近 B2）。
+      // 不加权时 K = 0，这一行退化成原来的 `nodeCost + dir[2]`，一个字节都不差。
+      const next = weighted
+        ? nodeCost + dir[2] * (1 + (penA + (B2 - clear[pp])) * K)
+        : nodeCost + dir[2];
       if (next < cost[ni]) {
         cost[ni] = next;
         push(ni, next);
@@ -236,6 +305,8 @@ export function buildFlowField(map, targetX, targetY) {
     targetCellX: tcx,
     targetCellY: tcy,
     reachable,
+    band,
+    lambda,
     cost,
     dirX,
     dirY

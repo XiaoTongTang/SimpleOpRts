@@ -41,7 +41,7 @@ export const DEFAULT_WORLD_ROWS = 150;
  *
  * 换格长的唯一方式就是改这个值然后重新启动（运行时没有换格长的入口）。
  */
-export const DEFAULT_CELL_SIZE = 32;
+export const DEFAULT_CELL_SIZE = 24;
 
 /** 格长的合法区间。只是防手滑，不是玩法参数。 */
 export const CELL_SIZE_MIN = 4;
