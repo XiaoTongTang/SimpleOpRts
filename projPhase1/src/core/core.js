@@ -19,6 +19,7 @@ import {
   GLOBAL_PARAM_DEFS, GLOBAL_PARAM_KEYS, clampGlobalParam
 } from "./sim/squad-layer.js";
 import { stepUnits } from "./sim/group-layer.js";
+import { buildAvoidField } from "./sim/avoid-field.js";
 import { Grid } from "./sim/spatial.js";
 import {
   blankMap, parseMapDocument, clampCellSize,
@@ -54,6 +55,13 @@ import { ABILITY_TEMPLATES } from "./data/ability-templates.js";
 import { WEAPONS } from "./sim/weapons.js";
 
 const SPAWN_SPREAD = 55;
+
+/** 地图里有没有墙（用来决定要不要建避墙场；空图建出来全是 0，白费几毫秒） */
+function hasAnyWall(map) {
+  const w = map.walls;
+  for (let i = 0; i < w.length; i++) if (w[i] === 1) return true;
+  return false;
+}
 
 /**
  * 每帧最多算几张流场。
@@ -109,6 +117,10 @@ export class GameCore {
     this.width = map.width;
     this.height = map.height;
 
+    // 静息避墙场：**每张地图一张**（与目标、队伍都无关），只在有墙时才建。
+    // 没有命令信标的小队靠它躲墙；有信标的小队走带通行成本的流场，不读它。
+    this.avoidField = hasAnyWall(map) ? buildAvoidField(map) : null;
+
     // 相机是「观察状态」，不是战斗状态：zoom = 0 表示自动铺满视口
     if (!this.cam) this.cam = { x: this.width / 2, y: this.height / 2, zoom: 0 };
 
@@ -121,7 +133,8 @@ export class GameCore {
       mass: 1.00,           // 全局质量：a = F / mass
       boostSpeed: 60,       // 低速助推阈值
       boostForce: 45,       // 低速助推力
-      maxSpeedFactor: 1.20  // 安全阀：|v| ≤ SPD × 这个系数（沙盒没有上限，这里保留以防火箭）
+      maxSpeedFactor: 1.20, // 安全阀：|v| ≤ SPD × 这个系数（沙盒没有上限，这里保留以防火箭）
+      wallAvoidForce: 40    // 无信标小队在离墙 B 格内受到的恒定避墙力（0 = 关掉）
     };
 
     this.squads = makeSquads();
@@ -474,7 +487,7 @@ export class GameCore {
 
     computeCenters(this.units, this.squads);
     computeSquadTargets(this.units, this.squads);
-    stepUnits(this.units, this.squads, this.G, dt, this.width, this.height, this.map);
+    stepUnits(this.units, this.squads, this.G, dt, this.width, this.height, this.map, this.avoidField);
 
     // 2. 自然恢复（血 + 盾，只作用自己）
     stepRegen(this.units, dt);

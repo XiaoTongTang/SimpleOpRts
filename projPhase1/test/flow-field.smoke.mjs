@@ -232,8 +232,10 @@ console.log("\n[9] 端到端：绕进「开口朝上的口袋」（有流场明�
     withFlow.frames === null ? `最近 ${withFlow.best.toFixed(0)}px` : `${withFlow.frames} 帧`);
   ok("有流场在 15 秒内到达", withFlow.frames !== null && withFlow.frames < 900,
     String(withFlow.frames));
-  ok("无流场明显更慢（耗时至少 1.4 倍）",
-    noFlow.frames === null || withFlow.frames * 1.4 < noFlow.frames,
+  // 只验"流场确实有用"，不钉倍数：加了净空成本之后，流场会为了离墙远一点而稍微绕路，
+  // 差距从原来的 ~2.4 倍缩到 ~1.18 倍（B=10、λ=1 时）。倍数阈值属于调参，不该进冒烟测试。
+  ok("无流场明显更慢（耗时至少 1.05 倍）",
+    noFlow.frames === null || withFlow.frames * 1.05 < noFlow.frames,
     `有流场 ${withFlow.frames} / 无流场 ${noFlow.frames === null ? "超时" : noFlow.frames} 帧`);
 }
 

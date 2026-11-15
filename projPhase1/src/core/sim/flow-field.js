@@ -25,20 +25,17 @@
  * 设计见 design/261114_1鸟群算法迁移/迁移设计.md §3.4。
  */
 
+import { buildClearance, CLEARANCE_BAND_CELLS } from "./clearance-field.js";
+
 const SQRT2 = Math.SQRT2;
 
 /**
- * 净空惩罚带宽度（**格**）。离墙 `B` 格以内加价，`B` 格外不加价。
- *
- * 以"格"为单位是刻意的：格长就是地图比例尺，整张图放大时边距也一起放大；
- * 而且**与单位半径无关** —— 流场服务的是整支小队（集群移动），
- * 不是单船的碰撞保证。设计见 design/261115_2流场通行成本/技术设计-流场通行成本.md。
- *
- * 6 格是 2026-11-15 定的：3 格只够把"长贴墙段"推出 1 格，看不出效果；6 格才会真正走到走廊中间。
+ * 净空惩罚带宽度定义在 `clearance-field.js`（流场与静息避墙场共用同一个带宽），
+ * 这里只是转出来，方便测试与老代码继续从 `flow-field.js` 取。
  */
-export const CLEARANCE_BAND_CELLS = 10;
+export { CLEARANCE_BAND_CELLS };
 
-/** 净空惩罚力度：贴墙格的单步代价最多比开阔格贵 `λ` 倍（0.4 = 贵 40%）。 */
+/** 净空惩罚力度：贴墙格的单步代价最多比开阔格贵 `λ` 倍（1 = 贵 100%）。 */
 export const CLEARANCE_LAMBDA = 1;
 
 /** 8 邻域：[dx, dy, 代价]，前 4 个是直边，后 4 个是斜边 */
@@ -134,42 +131,11 @@ export function buildFlowField(map, targetX, targetY, opts = {}) {
     }
   }
 
-  // ---- 净空距离变换（两趟 chamfer，单位"半格"，饱和在 2B）----
+  // ---- 净空距离（与静息避墙场共用同一份实现，见 clearance-field.js）----
   //
-  // 为什么要饱和：只有当这一格离墙不到 B 格时才需要加价，更远的格一律不加。
-  // 距离只增不减地向外传播，所以"取 min 之后再夹到 2B"不会破坏后续传播：
-  // 已经饱和的格再 +2 还是会被夹回 2B。
-  //
-  // 用**带边**的数组下标（和 solid 同一套），Dijkstra 里已经算好了 pp，直接查表，零额外索引运算。
-  let clear = null;
-  if (weighted) {
-    clear = new Uint8Array(PW * (rows + 2)).fill(B2);
-    for (let i = 0; i < solid.length; i++) if (solid[i]) clear[i] = 0;
-    const clampB2 = v => (v < B2 ? v : B2);
-
-    // 前向：上、左、左上、右上
-    for (let y = 1; y <= rows; y++) {
-      for (let x = 1; x <= cols; x++) {
-        const i = y * PW + x;
-        if (clear[i] === 0) continue;
-        let v = clear[i];
-        v = clampB2(Math.min(v, clear[i - PW] + 2, clear[i - 1] + 2,
-                               clear[i - PW - 1] + 3, clear[i - PW + 1] + 3));
-        clear[i] = v;
-      }
-    }
-    // 后向：下、右、右下、左下
-    for (let y = rows; y >= 1; y--) {
-      for (let x = cols; x >= 1; x--) {
-        const i = y * PW + x;
-        if (clear[i] === 0) continue;
-        let v = clear[i];
-        v = clampB2(Math.min(v, clear[i + PW] + 2, clear[i + 1] + 2,
-                               clear[i + PW + 1] + 3, clear[i + PW - 1] + 3));
-        clear[i] = v;
-      }
-    }
-  }
+  // 只有加权时才需要它；关闭加权时整段跳过，算法与改动前逐位一致。
+  // 布局是"带一圈实心边"的（PW = cols + 2），所以 Dijkstra 里已经算好的 pp 可以直接查表。
+  const clear = weighted ? buildClearance(map, band).d : null;
 
   const targetIndex = tcy * cols + tcx;
   cost[targetIndex] = 0;

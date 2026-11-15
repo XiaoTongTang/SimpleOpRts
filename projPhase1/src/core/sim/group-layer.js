@@ -26,6 +26,7 @@ import {
 } from "./force-model.js";
 import { moveUnitWithWalls } from "./wall-collision.js";
 import { directionAt } from "./flow-field.js";
+import { avoidAt } from "./avoid-field.js";
 
 /** 参考巡航速度（px/s）。只用于安全阀与参数换算，不再是硬上限。 */
 export const SPD = 96;
@@ -36,7 +37,7 @@ export const SPD = 96;
  *
  * @param map 地图（可选）。给了就按墙体硬碰撞推进位置；不给就是裸积分（单测用）。
  */
-export function stepUnits(units, squads, G, dt, W, H, map = null) {
+export function stepUnits(units, squads, G, dt, W, H, map = null, avoid = null) {
   const n = units.length;
   let sumAlpha = 0, sumCmd = 0, sumNb = 0, sumSpd = 0, sumCombat = 0;
 
@@ -244,6 +245,22 @@ export function stepUnits(units, squads, G, dt, W, H, map = null) {
     if (G.boostSpeed > 0 && speed < G.boostSpeed) {
       wx += G.boostForce * u.hx;
       wy += G.boostForce * u.hy;
+    }
+
+    // 静息避墙：**只对没有命令点的小队**生效。
+    //
+    // 力的大小是**常数**（G.wallAvoidForce），方向来自静态的避墙场：
+    // 进带就推、出带就不推。刻意不做距离加权 —— 会抖的不是"力在边界突变"，
+    // 而是"力由一个本身会变的量算出来 → 力改速度 → 速度又改力"的反馈环。
+    // 这里力只由位置决定，没有那个回路。
+    //
+    // 有信标的小队不读它：那边已经在走带通行成本的流场，再叠一个推力会和寻路方向打架。
+    if (!sq.goal && avoid && G.wallAvoidForce > 0 && map) {
+      const dir = avoidAt(avoid, map, u.x, u.y);
+      if (dir) {
+        wx += G.wallAvoidForce * dir.x;
+        wy += G.wallAvoidForce * dir.y;
+      }
     }
 
     // 边界：有地图时由 collectCircleWallContacts 的世界边框半平面处理；

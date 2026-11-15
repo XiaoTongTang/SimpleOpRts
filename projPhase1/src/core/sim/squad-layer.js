@@ -81,7 +81,9 @@ export const GLOBAL_PARAM_DEFS = [
   { k: "boostForce", name: "助推力", min: 0, max: 400, step: 10, dec: 0,
     desc: "低速助推的力度（px/s²）。0 = 关掉游走，舰队会停住" },
   { k: "maxSpeedFactor", name: "限速系数", min: 0.5, max: 3, step: 0.05, dec: 2,
-    desc: "速度上限 = 巡航速度 × 它。只是安全阀，正常战斗不该顶到" }
+    desc: "速度上限 = 巡航速度 × 它。只是安全阀，正常战斗不该顶到" },
+  { k: "wallAvoidForce", name: "避墙力", min: 0, max: 200, step: 5, dec: 0,
+    desc: "没有命令信标的小队，进入离墙 B 格以内时受到的恒定推力（px/s²）。0 = 关掉" }
 ];
 
 export const GLOBAL_PARAM_KEYS = GLOBAL_PARAM_DEFS.map(d => d.k);
