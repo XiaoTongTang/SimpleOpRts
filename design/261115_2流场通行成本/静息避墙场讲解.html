@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>静息避墙场讲解 · 没有信标的小队怎么躲墙</title>
+<style>
+  :root {
+    --bg: #070c12; --panel: #0d1620; --edge: #24384d; --text: #c8dcee; --dim: #7e97ae;
+    --accent: #4fa3e8; --warm: #e8a34f; --good: #4fd39a; --bad: #e8614f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 22px 26px 60px; background: var(--bg); color: var(--text);
+    font: 14px/1.65 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  h1 { font-size: 19px; margin: 0 0 4px; letter-spacing: .04em; }
+  h2 { font-size: 15px; margin: 26px 0 8px; color: var(--accent); }
+  .sub { color: var(--dim); font-size: 12.5px; margin: 0 0 18px; }
+  code { font-family: Consolas, "Cascadia Mono", monospace; color: #a9d2f5;
+         background: rgba(79,163,232,.09); padding: 1px 5px; border-radius: 3px; }
+  .bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+         background: var(--panel); border: 1px solid var(--edge); padding: 10px 12px; margin-bottom: 14px; }
+  button { font: inherit; font-size: 12.5px; color: var(--text); cursor: pointer;
+           background: #16283a; border: 1px solid var(--edge); padding: 4px 11px; }
+  button:hover { border-color: #3f6f9c; background: #1c3348; }
+  button.on { background: #1d4870; border-color: var(--accent); color: #e8f4ff; }
+  button:disabled { opacity: .38; cursor: default; }
+  .sep { width: 1px; height: 20px; background: var(--edge); }
+  label.sl { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--dim); }
+  input[type=range] { width: 110px; accent-color: var(--accent); }
+  .val { color: var(--text); font-family: Consolas, monospace; }
+
+  .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+  .card { background: var(--panel); border: 1px solid var(--edge); padding: 10px 12px 12px; }
+  .card h3 { margin: 0 0 2px; font-size: 13px; letter-spacing: .03em; }
+  .card .tag { font-size: 11.5px; color: var(--dim); display: block; margin-bottom: 8px; }
+  canvas { display: block; background: #0a1018; }
+  .probe { font-family: Consolas, monospace; font-size: 11.5px; color: var(--dim);
+           margin-top: 6px; min-height: 17px; }
+  .probe b { color: #cfe6ff; font-weight: 400; }
+
+  .note { background: var(--panel); border: 1px solid var(--edge); border-left: 3px solid var(--accent);
+          padding: 12px 14px; margin-top: 14px; min-height: 118px; }
+  .note h4 { margin: 0 0 6px; font-size: 13.5px; color: #e2f0ff; }
+  .note p { margin: 5px 0; font-size: 13px; color: #b9cee1; }
+  .note .fx { font-family: Consolas, monospace; font-size: 12.5px; color: #a9d2f5;
+              background: rgba(79,163,232,.08); padding: 7px 9px; margin: 7px 0; white-space: pre-wrap; }
+
+  .stats { font-family: Consolas, monospace; font-size: 11.5px; color: var(--dim); margin-top: 6px; }
+  .stats b { color: #cfe6ff; font-weight: 400; }
+  .foot { color: var(--dim); font-size: 12px; margin-top: 22px; max-width: 1180px; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--dim); margin-top: 8px; }
+  .legend i { display: inline-block; width: 11px; height: 11px; margin-right: 5px; vertical-align: -1px; }
+</style>
+</head>
+<body>
+
+<h1>静息避墙场 · 没有命令信标的小队也躲墙</h1>
+<p class="sub">
+  有信标的小队读「到目标的流场」（带通行成本）；<b>没有信标</b>的小队没有任何场，闲逛时只能撞上去、贴着墙蹭。
+  这一页讲的是给它补一张<b>只含离墙方向</b>的静态场：只在离墙 B 格以内有方向，带外为空；
+  进入这些格子的单位，<b>统一给一份固定大小的避墙力</b>（不按距离加权）。
+</p>
+
+<div class="bar">
+  <button id="btnPrev">◀ 上一步</button>
+  <button id="btnNext">下一步 ▶</button>
+  <button id="btnPlay" class="on">⏸ 暂停模拟</button>
+  <button id="btnReset">重置</button>
+  <div class="sep"></div>
+  <label class="sl">B <input id="band" type="range" min="2" max="10" step="1" value="6" /><span class="val" id="bandVal">6 格</span></label>
+  <label class="sl">避墙力 <input id="force" type="range" min="0" max="120" step="5" value="40" /><span class="val" id="forceVal">40</span></label>
+  <div class="sep"></div>
+  <button id="tgBand" class="on">净空带</button>
+  <button id="tgArrow" class="on">离墙方向</button>
+</div>
+
+<div class="row">
+  <div class="card">
+    <h3>场视图 · 44 × 20 格</h3>
+    <span class="tag" id="tagField">只在离墙 B 格以内有箭头；带外没有方向，箭头长度一致（力是常数）</span>
+    <canvas id="cvField" width="660" height="300"></canvas>
+    <div class="probe" id="probe">鼠标移到格子上看：离墙多少格 / 有没有方向</div>
+  </div>
+
+  <div class="card">
+    <h3>凹角：为什么方向要用「多墙叠加」算</h3>
+    <span class="tag">同一个角、同一批格子，两种算方向的方式</span>
+    <canvas id="cvCorner" width="470" height="250"></canvas>
+    <div class="probe" id="cornerNote">左：最近墙的法向（橙 = 横、黄 = 竖，过平分线整片翻）；右：多墙叠加 → 连续的对角</div>
+  </div>
+</div>
+
+<div class="note" id="note"></div>
+
+<h2>没有信标的小队：关掉 / 打开避墙力（同一初始条件）</h2>
+<div class="row">
+  <div class="card">
+    <h3>关掉避墙力</h3>
+    <canvas id="cvSimA" width="430" height="196"></canvas>
+    <div class="stats" id="statA">—</div>
+  </div>
+  <div class="card">
+    <h3>打开避墙力</h3>
+    <canvas id="cvSimB" width="430" height="196"></canvas>
+    <div class="stats" id="statB">—</div>
+  </div>
+</div>
+
+<div class="legend">
+  <span><i style="background:#1c2c3d"></i>空地</span>
+  <span><i style="background:#31465e"></i>墙体</span>
+  <span><i style="background:rgba(232,163,79,.5)"></i>B 格净空带</span>
+  <span><i style="background:#4fd39a"></i>离墙方向（带内，等长 = 等力）</span>
+  <span><i style="background:#e8f4ff"></i>无信标小队</span>
+</div>
+
+<div class="foot">
+  <p><b>对应实现</b>：<code>src/core/sim/avoid-field.js</code>（建场）+ <code>src/core/sim/group-layer.js</code>（把力加进
+  <code>wx/wy</code> 环境力槽，只在 <code>!sq.goal</code> 时生效）。设计与决策见
+  <code>design/261115_2流场通行成本/技术设计-静息避墙场.md</code>。</p>
+  <p><b>下面两个模拟是简化模型</b>：只保留「推力 → 阻尼 → 碰墙滑行」三件事和一点朝向噪声，
+  不是游戏里完整的 Couzin 力模型。它的用处是对照：<b>同样 12 艘船、同样随机种子</b>，
+  唯一差别是右边多了一份恒定的避墙力。</p>
+</div>
+
+<script>
+"use strict";
+
+// ================================================================ 地图
+const COLS = 44, ROWS = 20, CELL = 15;
+const at = (x, y) => y * COLS + x;
+const walls = new Uint8Array(COLS * ROWS);
+const isWall = (x, y) =>
+  x < 0 || y < 0 || x >= COLS || y >= ROWS || walls[at(x, y)] === 1;
+
+function buildMap() {
+  walls.fill(0);
+  for (let x = 0; x < COLS; x++) { walls[at(x, 0)] = 1; walls[at(x, ROWS - 1)] = 1; }
+  for (let y = 0; y < ROWS; y++) { walls[at(0, y)] = 1; walls[at(COLS - 1, y)] = 1; }
+  for (let y = 1; y <= 9; y++) walls[at(18, y)] = 1;                       // 垂下来的墙
+  for (let x = 28; x <= 33; x++) for (let y = 12; y <= 18; y++) walls[at(x, y)] = 1;  // 地面障碍
+  for (let x = 22; x <= 26; x++) walls[at(x, 5)] = 1;                      // 一段横墙
+}
+buildMap();
+
+// ================================================================ 参数
+let B = 6;                 // 净空带宽度（格）
+let B2 = B * 2;            // 半格单位
+let AVOID_FORCE = 40;      // 恒定避墙力（px/s²），与 boostForce 同量级
+
+// ================================================================ 净空距离（两趟 chamfer，半格单位）
+const clearance = new Uint8Array(COLS * ROWS);
+
+function buildClearance() {
+  B2 = B * 2;
+  clearance.fill(B2);
+  for (let i = 0; i < clearance.length; i++) if (walls[i]) clearance[i] = 0;
+  const clamp = v => (v < B2 ? v : B2);
+
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      const i = at(x, y);
+      if (clearance[i] === 0) continue;
+      let v = clearance[i];
+      if (x > 0) v = Math.min(v, clearance[i - 1] + 2);
+      if (y > 0) v = Math.min(v, clearance[i - COLS] + 2);
+      if (x > 0 && y > 0) v = Math.min(v, clearance[i - COLS - 1] + 3);
+      if (x < COLS - 1 && y > 0) v = Math.min(v, clearance[i - COLS + 1] + 3);
+      clearance[i] = clamp(v);
+    }
+  }
+  for (let y = ROWS - 1; y >= 0; y--) {
+    for (let x = COLS - 1; x >= 0; x--) {
+      const i = at(x, y);
+      if (clearance[i] === 0) continue;
+      let v = clearance[i];
+      if (x < COLS - 1) v = Math.min(v, clearance[i + 1] + 2);
+      if (y < ROWS - 1) v = Math.min(v, clearance[i + COLS] + 2);
+      if (x < COLS - 1 && y < ROWS - 1) v = Math.min(v, clearance[i + COLS + 1] + 3);
+      if (x > 0 && y < ROWS - 1) v = Math.min(v, clearance[i + COLS - 1] + 3);
+      clearance[i] = clamp(v);
+    }
+  }
+}
+
+const clearCells = i => clearance[i] / 2;
+
+// ================================================================ 离墙方向场
+// 多墙叠加：对每个墙格，向半径 B 内的空地泼一份 1/r² 的斥力，最后归一化。
+// 归一化之后每个有方向的格都是**单位向量**，力的大小由常数 AVOID_FORCE 决定。
+const ax = new Float32Array(COLS * ROWS);
+const ay = new Float32Array(COLS * ROWS);
+
+function buildAvoid() {
+  ax.fill(0); ay.fill(0);
+
+  for (let wy = 0; wy < ROWS; wy++) {
+    for (let wx = 0; wx < COLS; wx++) {
+      if (!walls[at(wx, wy)]) continue;
+      for (let dy = -B; dy <= B; dy++) {
+        const y = wy + dy;
+        if (y < 0 || y >= ROWS) continue;
+        for (let dx = -B; dx <= B; dx++) {
+          const x = wx + dx;
+          if (x < 0 || x >= COLS) continue;
+          if (walls[at(x, y)]) continue;
+          const r = Math.hypot(dx, dy);
+          if (r > B) continue;
+          const inv = 1 / Math.max(1, r);
+          const w2 = inv * inv;
+          const i = at(x, y);
+          ax[i] += (dx / (r || 1)) * w2;
+          ay[i] += (dy / (r || 1)) * w2;
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < ax.length; i++) {
+    if (walls[i]) continue;
+    if (clearCells(i) >= B) { ax[i] = 0; ay[i] = 0; continue; }   // 带外：没有方向
+    const len = Math.hypot(ax[i], ay[i]);
+    if (len < 1e-9) { ax[i] = 0; ay[i] = 0; continue; }
+    ax[i] /= len; ay[i] /= len;
+  }
+}
+
+/** 场上某点的避墙力：**恒定大小** × 该格的方向（带外返回 null） */
+function avoidForceAt(x, y) {
+  const cx = Math.min(COLS - 1, Math.max(0, Math.floor(x / CELL)));
+  const cy = Math.min(ROWS - 1, Math.max(0, Math.floor(y / CELL)));
+  const i = at(cx, cy);
+  if (!ax[i] && !ay[i]) return null;
+  return { fx: AVOID_FORCE * ax[i], fy: AVOID_FORCE * ay[i], i };
+}
+
+// ================================================================ 凹角对照（最近墙法向 vs 多墙叠加）
+const CC = 9;
+const cw = new Uint8Array(CC * CC);
+const cat = (x, y) => y * CC + x;
+for (let x = 0; x < CC; x++) cw[cat(x, 0)] = 1;
+for (let y = 0; y < CC; y++) cw[cat(0, y)] = 1;
+
+/** 最近墙的法向（已改成指向远离墙的一侧） */
+function nearestNormal(x, y) {
+  let best = Infinity, bx = 0, by = 0;
+  for (let wy = 0; wy < CC; wy++) {
+    for (let wx = 0; wx < CC; wx++) {
+      if (!cw[cat(wx, wy)]) continue;
+      const d = Math.hypot(wx - x, wy - y);
+      if (d < best) { best = d; bx = x - wx; by = y - wy; }
+    }
+  }
+  if (!best) return null;
+  return { x: bx / best, y: by / best };
+}
+
+/** 多墙叠加（与真实场同一公式） */
+function multiNormal(x, y) {
+  let sx = 0, sy = 0;
+  for (let wy = 0; wy < CC; wy++) {
+    for (let wx = 0; wx < CC; wx++) {
+      if (!cw[cat(wx, wy)]) continue;
+      const dx = x - wx, dy = y - wy;
+      const r = Math.hypot(dx, dy);
+      if (r > 6 || r === 0) continue;
+      const inv = 1 / Math.max(1, r);
+      const w2 = inv * inv;
+      sx += (dx / r) * w2; sy += (dy / r) * w2;
+    }
+  }
+  const len = Math.hypot(sx, sy);
+  if (len < 1e-9) return null;
+  return { x: sx / len, y: sy / len };
+}
+
+// ================================================================ 简化模拟（12 艘无信标小船）
+const SIM_CELL = 430 / COLS;
+const SIM_H = SIM_CELL * ROWS;
+
+const G = {
+  damping: 0.8, mass: 1, boostSpeed: 60, boostForce: 40, cruiseCap: 96 * 1.8
+};
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+function makeSim(useAvoid) {
+  const rnd = mulberry32(20261115);
+  const units = [];
+  let guard = 0;
+  while (units.length < 12 && guard++ < 5000) {
+    const cx = 2 + Math.floor(rnd() * (COLS - 4));
+    const cy = 2 + Math.floor(rnd() * (ROWS - 4));
+    if (isWall(cx, cy)) continue;
+    const h = rnd() * Math.PI * 2;
+    units.push({
+      x: (cx + 0.5) * CELL + (rnd() - 0.5) * 4,
+      y: (cy + 0.5) * CELL + (rnd() - 0.5) * 4,
+      vx: Math.cos(h) * 40, vy: Math.sin(h) * 40,
+      hx: Math.cos(h), hy: Math.sin(h),
+      noise: (rnd() - 0.5),
+      prevTurn: 0,
+      r: 6
+    });
+  }
+  return { useAvoid, units, frames: 0, touchFrames: 0, clearSum: 0, clearN: 0, turnSum: 0, turnN: 0, revCount: 0 };
+}
+
+let simA = makeSim(false);
+let simB = makeSim(true);
+
+function stepSim(sim, dt) {
+  for (const u of sim.units) {
+    let fx = 0, fy = 0;
+    const speed = Math.hypot(u.vx, u.vy);
+    if (speed < G.boostSpeed) {
+      fx += G.boostForce * u.hx;
+      fy += G.boostForce * u.hy;
+    }
+    if (sim.useAvoid) {
+      const f = avoidForceAt(u.x, u.y);
+      if (f) { fx += f.fx; fy += f.fy; }
+    }
+    const nz = u.noise * 6;
+    fx += -u.hy * nz;
+    fy += u.hx * nz;
+
+    u.vx += fx / G.mass * dt;
+    u.vy += fy / G.mass * dt;
+    const damp = Math.exp(-G.damping * dt);
+    u.vx *= damp; u.vy *= damp;
+    const sp = Math.hypot(u.vx, u.vy);
+    if (sp > G.cruiseCap) { u.vx *= G.cruiseCap / sp; u.vy *= G.cruiseCap / sp; }
+
+    u.x += u.vx * dt;
+    u.y += u.vy * dt;
+
+    const pad = u.r * 0.55;
+    let nx = 0, ny = 0;
+    if (isWall(Math.floor((u.x + pad) / CELL), Math.floor(u.y / CELL))) nx -= 1;
+    if (isWall(Math.floor((u.x - pad) / CELL), Math.floor(u.y / CELL))) nx += 1;
+    if (isWall(Math.floor(u.x / CELL), Math.floor((u.y + pad) / CELL))) ny -= 1;
+    if (isWall(Math.floor(u.x / CELL), Math.floor((u.y - pad) / CELL))) ny += 1;
+
+    if (nx || ny) {
+      const l = Math.hypot(nx, ny);
+      nx /= l; ny /= l;
+      const dot = u.vx * nx + u.vy * ny;
+      if (dot < 0) { u.vx -= nx * dot; u.vy -= ny * dot; }
+      u.x += nx * 0.8; u.y += ny * 0.8;
+    }
+
+    const s2 = Math.hypot(u.vx, u.vy);
+    let dh = 0;
+    if (s2 > 1) {
+      const nHx = u.vx / s2, nHy = u.vy / s2;
+      const dot = u.hx * nHx + u.hy * nHy;
+      const cross = u.hx * nHy - u.hy * nHx;
+      dh = Math.abs(Math.atan2(cross, dot));
+      // 带符号的转向角：用来数"来回翻"（震荡代理）
+      const signed = Math.atan2(cross, dot);
+      if (u.prevTurn !== 0 && Math.abs(dh) > 1e-4 && Math.sign(signed) !== Math.sign(u.prevTurn)) {
+        sim.revCount++;
+      }
+      u.prevTurn = signed;
+      u.hx = nHx; u.hy = nHy;
+    }
+
+    const ci = at(
+      Math.min(COLS - 1, Math.max(0, Math.floor(u.x / CELL))),
+      Math.min(ROWS - 1, Math.max(0, Math.floor(u.y / CELL)))
+    );
+    const d = clearCells(ci);
+    sim.clearSum += d; sim.clearN++;
+    if (d < 1.5) sim.touchFrames++;
+    sim.turnSum += dh * 180 / Math.PI; sim.turnN++;
+  }
+  sim.frames++;
+}
+
+// ================================================================ 绘制：场视图
+const cvField = document.getElementById("cvField");
+const gF = cvField.getContext("2d");
+
+function drawField() {
+  gF.fillStyle = "#0a1018";
+  gF.fillRect(0, 0, cvField.width, cvField.height);
+
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      const i = at(x, y);
+      const px = x * CELL, py = y * CELL;
+      if (walls[i]) {
+        gF.fillStyle = "#31465e";
+        gF.fillRect(px, py, CELL, CELL);
+        continue;
+      }
+      const d = clearCells(i);
+      if (showBand && d < B) {
+        const t = 1 - d / B;
+        gF.fillStyle = `rgba(232,163,79,${(0.05 + t * 0.2).toFixed(3)})`;
+      } else {
+        gF.fillStyle = "#121d29";
+      }
+      gF.fillRect(px, py, CELL, CELL);
+    }
+  }
+
+  // 离墙方向：等长箭头（长度恒定 = 力恒定）
+  if (showArrow) {
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        const i = at(x, y);
+        if (!ax[i] && !ay[i]) continue;
+        const ox = x * CELL + CELL / 2, oy = y * CELL + CELL / 2;
+        const len = CELL * 0.38;
+        const dx = ax[i] * len, dy = ay[i] * len;
+        gF.strokeStyle = "rgba(79,211,154,.9)";
+        gF.lineWidth = 1.3;
+        gF.beginPath();
+        gF.moveTo(ox - dx * 0.5, oy - dy * 0.5);
+        gF.lineTo(ox + dx, oy + dy);
+        gF.stroke();
+        const a = Math.atan2(ay[i], ax[i]);
+        const tx = ox + dx, ty = oy + dy;
+        gF.beginPath();
+        gF.moveTo(tx, ty);
+        gF.lineTo(tx - Math.cos(a - 0.45) * 3.2, ty - Math.sin(a - 0.45) * 3.2);
+        gF.moveTo(tx, ty);
+        gF.lineTo(tx - Math.cos(a + 0.45) * 3.2, ty - Math.sin(a + 0.45) * 3.2);
+        gF.stroke();
+      }
+    }
+  }
+
+  if (hover) {
+    gF.strokeStyle = "#ffd479";
+    gF.lineWidth = 2;
+    gF.strokeRect(hover.x * CELL + 1, hover.y * CELL + 1, CELL - 2, CELL - 2);
+  }
+}
+
+// ================================================================ 绘制：凹角对照
+const cvCorner = document.getElementById("cvCorner");
+const gC = cvCorner.getContext("2d");
+const CC_CELL = 25;
+const CC_OFFX = 12, CC_OFFY = 30;
+const CC_GAP = 240;
+
+function drawCorner() {
+  gC.fillStyle = "#0a1018";
+  gC.fillRect(0, 0, cvCorner.width, cvCorner.height);
+  gC.font = "11px -apple-system, 'Microsoft YaHei', sans-serif";
+  gC.textAlign = "left"; gC.textBaseline = "alphabetic";
+  gC.fillStyle = "#e8a34f"; gC.fillText("最近墙的法向（会跳）", CC_OFFX, 18);
+  gC.fillStyle = "#4fd39a"; gC.fillText("多墙叠加（连续）", CC_OFFX + CC_GAP, 18);
+
+  for (let pass = 0; pass < 2; pass++) {
+    const ox = CC_OFFX + pass * CC_GAP;
+    const oy = CC_OFFY;
+
+    for (let y = 0; y < CC; y++) {
+      for (let x = 0; x < CC; x++) {
+        const px = ox + x * CC_CELL, py = oy + y * CC_CELL;
+        gC.fillStyle = cw[cat(x, y)] ? "#31465e" : "#111c28";
+        gC.fillRect(px, py, CC_CELL, CC_CELL);
+        gC.strokeStyle = "rgba(40,64,88,.5)";
+        gC.lineWidth = 1;
+        gC.strokeRect(px + .5, py + .5, CC_CELL - 1, CC_CELL - 1);
+      }
+    }
+
+    gC.strokeStyle = "rgba(120,170,220,.35)";
+    gC.setLineDash([3, 3]);
+    gC.beginPath();
+    gC.moveTo(ox + 0.5 * CC_CELL, oy + 0.5 * CC_CELL);
+    gC.lineTo(ox + 8.5 * CC_CELL, oy + 8.5 * CC_CELL);
+    gC.stroke();
+    gC.setLineDash([]);
+
+    for (let y = 1; y < CC; y++) {
+      for (let x = 1; x < CC; x++) {
+        if (cw[cat(x, y)]) continue;
+        const v = pass === 0 ? nearestNormal(x, y) : multiNormal(x, y);
+        if (!v) continue;
+        const cx = ox + (x + 0.5) * CC_CELL, cy = oy + (y + 0.5) * CC_CELL;
+        const len = CC_CELL * 0.42;
+        const dx = v.x * len, dy = v.y * len;
+        // 左边那幅按"横 / 竖"分色：过平分线时颜色整片翻，一眼能看出方向跳变
+        const horiz = Math.abs(v.x) > Math.abs(v.y);
+        gC.strokeStyle = pass === 0
+          ? (horiz ? "rgba(232,163,79,.95)" : "rgba(240,226,120,.95)")
+          : "rgba(79,211,154,.95)";
+        gC.lineWidth = 1.5;
+        gC.beginPath();
+        gC.moveTo(cx - dx * 0.3, cy - dy * 0.3);
+        gC.lineTo(cx + dx, cy + dy);
+        gC.stroke();
+        const a = Math.atan2(dy, dx);
+        const tx = cx + dx, ty = cy + dy;
+        gC.beginPath();
+        gC.moveTo(tx, ty);
+        gC.lineTo(tx - Math.cos(a - 0.5) * 3.6, ty - Math.sin(a - 0.5) * 3.6);
+        gC.moveTo(tx, ty);
+        gC.lineTo(tx - Math.cos(a + 0.5) * 3.6, ty - Math.sin(a + 0.5) * 3.6);
+        gC.stroke();
+      }
+    }
+  }
+}
+
+// ================================================================ 绘制：模拟
+const cvA = document.getElementById("cvSimA");
+const cvB = document.getElementById("cvSimB");
+const gA = cvA.getContext("2d");
+const gB = cvB.getContext("2d");
+
+function drawSim(g, sim, accent) {
+  const cv = g.canvas;
+  g.fillStyle = "#0a1018";
+  g.fillRect(0, 0, cv.width, cv.height);
+
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      const px = x * SIM_CELL, py = y * SIM_CELL;
+      const i = at(x, y);
+      if (walls[i]) {
+        g.fillStyle = "#3b526b";
+      } else {
+        const d = clearCells(i);
+        g.fillStyle = d < B ? `rgba(232,163,79,${(0.05 + (1 - d / B) * 0.14).toFixed(3)})` : "#101a24";
+      }
+      g.fillRect(px, py, SIM_CELL - 0.4, SIM_CELL - 0.4);
+    }
+  }
+
+  for (const u of sim.units) {
+    const px = u.x / CELL * SIM_CELL, py = u.y / CELL * SIM_CELL;
+    g.strokeStyle = accent;
+    g.lineWidth = 1.4;
+    g.beginPath();
+    g.moveTo(px, py);
+    g.lineTo(px + u.hx * 6.5, py + u.hy * 6.5);
+    g.stroke();
+    g.fillStyle = "#f2f8ff";
+    g.beginPath();
+    g.arc(px, py, 2.2, 0, 7);
+    g.fill();
+  }
+}
+
+function statText(sim) {
+  const touch = sim.touchFrames / Math.max(1, sim.clearN) * 100;
+  const avgClear = sim.clearSum / Math.max(1, sim.clearN);
+  const turn = sim.turnSum / Math.max(1, sim.turnN);
+  return `贴墙占比 <b>${touch.toFixed(1)}%</b>　平均离墙 <b>${avgClear.toFixed(2)}</b> 格　` +
+    `每帧转向 <b>${turn.toFixed(2)}°</b>`;
+}
+
+// ================================================================ 状态
+let showBand = true, showArrow = true;
+let hover = null;
+let step = 1;
+let playing = true;
+
+const probeEl = document.getElementById("probe");
+function renderProbe() {
+  if (!hover) { probeEl.innerHTML = "鼠标移到格子上看：离墙多少格 / 有没有方向"; return; }
+  const { x, y } = hover;
+  const i = at(x, y);
+  if (walls[i]) { probeEl.innerHTML = `(${x}, ${y})　墙`; return; }
+  const d = clearCells(i);
+  const has = ax[i] !== 0 || ay[i] !== 0;
+  probeEl.innerHTML =
+    `(${x}, ${y})　离墙 <b>${d.toFixed(1)}</b> 格　` +
+    (has
+      ? `方向 <b>(${ax[i].toFixed(2)}, ${ay[i].toFixed(2)})</b>　力 <b>${AVOID_FORCE}</b>`
+      : `<b>带外：没有方向，不受力</b>`);
+}
+
+const noteEl = document.getElementById("note");
+
+function render() {
+  drawField();
+  drawCorner();
+  drawSim(gA, simA, "#8fb4d0");
+  drawSim(gB, simB, "#4fd39a");
+  document.getElementById("statA").innerHTML = statText(simA);
+  document.getElementById("statB").innerHTML = statText(simB);
+  renderProbe();
+  renderNote();
+}
+
+cvField.addEventListener("mousemove", e => {
+  const r = cvField.getBoundingClientRect();
+  const x = Math.floor((e.clientX - r.left) / CELL);
+  const y = Math.floor((e.clientY - r.top) / CELL);
+  if (x < 0 || y < 0 || x >= COLS || y >= ROWS) return;
+  if (hover && hover.x === x && hover.y === y) return;
+  hover = { x, y };
+  render();
+});
+cvField.addEventListener("mouseleave", () => { hover = null; render(); });
+
+// ================================================================ 讲解文案
+const STEPS = [
+  {
+    t: "① 问题：没有信标的小队谁也不管它",
+    body: [
+      "有信标的小队读流场（那是「到目标怎么走」）；<b>没有信标</b>的小队没有任何场。",
+      "它们靠一条无条件的低频助推沿各自朝向巡航 —— 这是「闲着会自己游走」的设计。问题是：游走没有任何「别靠墙」的倾向，撞上就贴着蹭。",
+      "下面两个模拟：左边完全不管，右边多一份避墙力。现在先看左边 —— 船会沿着墙慢慢滑，甚至长时间贴着。"
+    ]
+  },
+  {
+    t: "② 先把「离墙多远」算出来",
+    body: [
+      "和流场那一页用的是<b>同一份几何</b>：两趟 chamfer 算每格到最近墙的距离 <code>d</code>（半格单位）。",
+      "这一步与命令、与队伍无关，纯粹是地图的属性。所以它可以<b>每张地图只算一次</b>，和流场（每个目标格一张）完全不同。"
+    ],
+    fx: "d[格] = 到最近墙的距离（两趟 chamfer：正交 +2、对角 +3，饱和在 2B）"
+  },
+  {
+    t: "③ 只保留离墙 B 格以内的带子",
+    body: [
+      "带子外面（<code>d ≥ B</code>）<b>不放任何方向</b> —— 这正是要的「其他区域没有流场方向」。",
+      "带子里面才有方向。橙色越深 = 离墙越近；但注意：<b>箭头长度是一样的</b>，因为力是常数，不随距离变化。",
+      "把 B 拉大，带子变宽（推力覆盖更远）；拉小，只在快贴上去时才推。"
+    ],
+    fx: "只在 d < B 的格子里生成方向；d ≥ B 时 ax = ay = 0，单位进入也不受力"
+  },
+  {
+    t: "④ 方向怎么来：多墙叠加，不是「最近墙的法向」",
+    body: [
+      "直觉做法是「找最近的墙，方向取它指向我的反方向」。它有个致命问题：<b>凹角</b>。",
+      "看右上角那张对照图：按最近墙算，站在角平分线两边的格会各自认不同的墙，箭头在平分线上<b>整支翻 90°</b>。",
+      "改成「对 B 格内所有墙格叠加斥力」：<code>acc = Σ (g/|g|)·1/|g|²</code>。在平分线上两侧对称相加，正好给出<b>角平分线方向</b>，连续、不跳。",
+      "顺带一个好处：这个公式和船与船的分离力是同一个形状（1/gap²），只是墙是「半径 0、不会动」的邻居。"
+    ],
+    fx: "acc = Σ_{B 格内的墙格}  (g/|g|) · 1/|g|²        // g = 格心 − 墙格心\n方向 = acc / |acc|        // 归一化成单位向量"
+  },
+  {
+    t: "⑤ 力的大小：进入带子就给固定值，不按距离加权",
+    body: [
+      "算完方向之后，<b>进入这些格子的单位一律给同样大小的避墙力</b>：<code>F = 常数 × 方向</code>，和离墙 1 格还是 5 格无关。",
+      "<b>为什么不按距离加权</b>（比如 <code>(1 − d/B)²</code>）：抖动不是「力在边界突变」造成的。均匀恒定的力不会自己震荡。",
+      "真正会震的是另一种结构：<b>力的大小由一个本身会变的量算出来</b>（比如速度、或者别的小队的状态）→ 这个力改变速度 → 速度又改变力 → 两者叠加，振幅越来越大。",
+      "这张场刻意避开了那种结构：力只由<b>位置</b>决定，方向来自静态几何，大小是常数 —— 没有任何反馈回路可以放大。"
+    ],
+    fx: "F = 40 px/s² · direction(cell)        // 常数，与 d、与速度、与别的小队都无关\n只在 d < B 的格子里有方向 → 出带立刻不再受力"
+  },
+  {
+    t: "⑥ 效果对照：同一初始条件，只差这一份力",
+    body: [
+      "两个模拟共享同一颗随机种子、同样的 12 艘船、同样的推力与阻尼。唯一差别是右边开了避墙力。",
+      "看三行统计：<b>贴墙占比</b>（离墙不到 1.5 格的采样占比）应该明显下降；<b>平均离墙</b>上升；<b>每帧转向</b>（抖动代理）不应该上升。",
+      "把上面的「避墙力」滑块推到 0，右边退化成和左边一样；推到很大，会看到船被推着绕圈。40 是设计给的起手值（与 boostForce 同量级）。"
+    ]
+  },
+  {
+    t: "⑦ 和「有信标」的分工",
+    body: [
+      "有信标：流场负责「往哪走」，靠<b>通行成本</b>让路径不贴墙（那是另一页的事）。",
+      "无信标：没有目标可指，只补一份「离墙方向」，用恒定环境力推一把。",
+      "两者都不改变硬碰撞（<code>resolveUnitWall</code> 仍然是最后一道），也都与单位半径无关 —— 场服务的是整支队伍。"
+    ]
+  }
+];
+
+function renderNote() {
+  const s = STEPS[step - 1];
+  let html = `<h4>${s.t}</h4>`;
+  for (const p of s.body) html += `<p>${p}</p>`;
+  if (s.fx) html += `<div class="fx">${s.fx}</div>`;
+  noteEl.innerHTML = html;
+}
+
+// ================================================================ 交互
+const btnPrev = document.getElementById("btnPrev");
+const btnNext = document.getElementById("btnNext");
+const btnPlay = document.getElementById("btnPlay");
+const btnReset = document.getElementById("btnReset");
+
+function goStep(n) {
+  step = Math.max(1, Math.min(STEPS.length, n));
+  btnPrev.disabled = step <= 1;
+  btnNext.disabled = step >= STEPS.length;
+  render();
+}
+
+btnNext.onclick = () => goStep(step + 1);
+btnPrev.onclick = () => goStep(step - 1);
+btnReset.onclick = () => {
+  simA = makeSim(false); simB = makeSim(true);
+  goStep(1);
+};
+
+btnPlay.onclick = () => {
+  playing = !playing;
+  btnPlay.textContent = playing ? "⏸ 暂停模拟" : "▶ 继续模拟";
+  btnPlay.classList.toggle("on", playing);
+};
+
+document.getElementById("band").oninput = e => {
+  B = parseInt(e.target.value, 10);
+  document.getElementById("bandVal").textContent = B + " 格";
+  buildClearance(); buildAvoid();
+  simA = makeSim(false); simB = makeSim(true);
+  render();
+};
+
+document.getElementById("force").oninput = e => {
+  AVOID_FORCE = parseInt(e.target.value, 10);
+  document.getElementById("forceVal").textContent = String(AVOID_FORCE);
+  render();
+};
+
+const tg = (id, get, set) => {
+  const b = document.getElementById(id);
+  b.onclick = () => { set(!get()); b.classList.toggle("on", get()); render(); };
+};
+tg("tgBand", () => showBand, v => showBand = v);
+tg("tgArrow", () => showArrow, v => showArrow = v);
+
+// ================================================================ 主循环
+cvA.width = Math.round(SIM_CELL * COLS); cvA.height = Math.round(SIM_H);
+cvB.width = Math.round(SIM_CELL * COLS); cvB.height = Math.round(SIM_H);
+
+let last = performance.now();
+let acc = 0;
+const FIXED = 1 / 60;
+
+function loop(now) {
+  const dt = Math.min((now - last) / 1000, 0.1);
+  last = now;
+
+  if (playing) {
+    acc += dt;
+    let guard = 0;
+    while (acc >= FIXED && guard++ < 5) {
+      stepSim(simA, FIXED);
+      stepSim(simB, FIXED);
+      acc -= FIXED;
+    }
+  }
+
+  drawField();
+  drawCorner();
+  drawSim(gA, simA, "#8fb4d0");
+  drawSim(gB, simB, "#4fd39a");
+  document.getElementById("statA").innerHTML = statText(simA);
+  document.getElementById("statB").innerHTML = statText(simB);
+
+  requestAnimationFrame(loop);
+}
+
+buildClearance();
+buildAvoid();
+goStep(1);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
